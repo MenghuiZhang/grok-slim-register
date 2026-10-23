@@ -753,8 +753,12 @@ def build_proxy_option(spec: str) -> tuple[dict[str, str], bool]:
     from g.proxy_pool import parse_proxy_line
 
     parsed = parse_proxy_line(spec)
+    scheme = parsed["scheme"]
+    # Playwright Firefox 只认 socks5:（socks5h: 会被当 HTTP 代理 → NS_ERROR_NET_RESET）
+    if scheme == "socks5h":
+        scheme = "socks5"
     option: dict[str, str] = {
-        "server": f"{parsed['scheme']}://{parsed['host']}:{parsed['port']}"
+        "server": f"{scheme}://{parsed['host']}:{parsed['port']}"
     }
     if parsed["username"]:
         option["username"] = parsed["username"]

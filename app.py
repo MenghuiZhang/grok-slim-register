@@ -197,6 +197,9 @@ def _lease_token_proxy(account: dict) -> tuple[str | None, object | None, str]:
 _NETWORK_ERROR_HINTS = (
     "err_",
     "net::",
+    "ns_error_",  # Firefox/Camoufox: NS_ERROR_NET_RESET / NS_ERROR_CONNECTION_REFUSED 等
+    "net_reset",
+    "connection reset",
     "econn",
     "eai_again",
     "etimedout",
