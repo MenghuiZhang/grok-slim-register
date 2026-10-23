@@ -168,7 +168,7 @@ docker compose up -d --build
 
 | 触发 | 行为 |
 |---|---|
-| push 到 `main` | 构建 + 推送 GHCR（`latest`、分支名、`sha-xxxx`） |
+| push 到 `main` | 构建 + 推送 GHCR（`latest`、分支名、`sha-xxxx`），默认**双架构** `linux/amd64,linux/arm64` |
 | push `v*` tag | 构建 + 推送 GHCR（tag 名） |
 | Actions 页手动 `Run workflow` | 可选平台（`linux/amd64` / `linux/arm64` / 两个都用）与是否推送 |
 | Pull Request | 只构建不推送，验证 Dockerfile 能编过 |
@@ -309,7 +309,7 @@ tar czf ~/grok-$(date +%F).tgz .env data keys register_sso converted_auth
 | 端口冲突 | `.env` 里设 `GROK_HOST_PORT=3334`（compose 会用它做宿主机端口） |
 | 启动注册提示「邮箱配置不可用」 | 到「邮箱配置」页填好并点测试；`cloudflare_temp` 需要 base_url + site_token + 至少一个启用域名 |
 | 容器一直 `starting` / `unhealthy` | 首次启动有 90s 的 start-period；超时就看 `docker compose logs` |
-| ARM VPS（Oracle A1、树莓派等） | `latest` 目前只有 amd64；在 Actions 手动 `Run workflow` 选 `linux/amd64,linux/arm64` 生成多架构 manifest（**别只选 arm64**，那会把 `latest` 覆盖成单架构） |
+| ARM VPS（Oracle A1、树莓派等） | `latest` 默认已是多架构 manifest（amd64 + arm64），直接 `docker compose pull` 即可；手动 `Run workflow` 时**别只选 arm64**，那会把 `latest` 覆盖成单架构 |
 
 #### 7. 一键部署脚本
 
