@@ -116,7 +116,9 @@ jobs:
           push: ${{ needs.cfg.outputs.push == 'true' }}
           # 推送时按 digest 匿名推送（push-by-digest），tag 由 merge job 统一打；
           # PR 校验时只构建加载到本地 docker，不推送
-          tags: ${{ needs.cfg.outputs.push == 'true' && '' || 'ci-validate:local' }}
+          # 注意：不能写成 push=='true' && '' || ... —— 空串是 falsy，|| 会取到 tag，
+          # 导致 push-by-digest 时带上 tag 而 buildx 报错
+          tags: ${{ needs.cfg.outputs.push != 'true' && 'ci-validate:local' || '' }}
           outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=docker' }}
           # CI runner 能访问 GitHub Releases，用在线安装，不需要 vendor/ 离线包。
           # 想用镜像/反代：在仓库 Variables 里配 CAMOUFOX_ZIP_URL / CAMOUFOX_MODEL_URL，留空走 GitHub 官方
@@ -179,7 +181,9 @@ jobs:
           context: .
           platforms: linux/arm64
           push: ${{ needs.cfg.outputs.push == 'true' }}
-          tags: ${{ needs.cfg.outputs.push == 'true' && '' || 'ci-validate:local' }}
+          # 注意：不能写成 push=='true' && '' || ... —— 空串是 falsy，|| 会取到 tag，
+          # 导致 push-by-digest 时带上 tag 而 buildx 报错
+          tags: ${{ needs.cfg.outputs.push != 'true' && 'ci-validate:local' || '' }}
           outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=docker' }}
           build-args: |
             CAMOUFOX_INSTALL=online
