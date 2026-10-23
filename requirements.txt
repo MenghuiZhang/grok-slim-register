@@ -8,3 +8,8 @@ flask>=3.1
 # 版本固定：camoufox 的 browser-pin.json 决定浏览器 build（0.5.8 → 156.0.1-beta.36），
 # 升级它会同时更换浏览器版本，需与 vendor/ 离线包或 CI 下载的 zip 对齐。
 camoufox[geoip]==0.5.8
+# 版本固定：Firefox 驱动在 Turnstile 跨域 iframe 导航提交与 frame 销毁竞态时
+# 会崩掉 Node 进程（removeChildFramesRecursively 读 undefined._getChildFrames，
+# 上游 microsoft/playwright#13444），不同版本触发概率不同；锁到本地验证过的
+# 1.60.0（满足 camoufox 的 <1.63），避免 Docker 构建时解析到别的版本。
+playwright==1.60.0
