@@ -24,6 +24,7 @@ import string
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -886,6 +887,35 @@ def click_turnstile_macos(
     return "no-iframe"
 
 
+class BrowserCrashGuard:
+    """浏览器阶段（Camoufox 启动 + 页面操作）崩溃兜底。
+
+    任何 Exception 都打印完整 traceback 并写入 ``result["error"]``，
+    随后吞掉异常、落到 main() 末尾的结果 JSON 写出，进程优雅退出（码 1），
+    代替原来直接裸崩、结果文件不落盘的行为。
+    KeyboardInterrupt / SystemExit 不拦截，保持 Ctrl+C 与提前 return 语义不变。
+    """
+
+    def __init__(self, log_fn, result: dict[str, Any]) -> None:
+        self._log = log_fn
+        self._result = result
+
+    def __enter__(self) -> "BrowserCrashGuard":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is None or not issubclass(exc_type, Exception):
+            return False
+        try:
+            self._log(traceback.format_exc().rstrip())
+            detail = f"浏览器阶段异常: {type(exc).__name__}: {exc}"
+            self._result["error"] = detail[:300]
+            self._log(self._result["error"])
+        except Exception:
+            pass
+        return True  # 吞掉异常 → 继续走结果 JSON 写出 → 返回 1
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     sys_path = Path(__file__).resolve().parents[1]
@@ -980,7 +1010,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception:
             pass
 
-    with Camoufox(**kwargs) as browser:
+    with BrowserCrashGuard(log, result), Camoufox(**kwargs) as browser:
         page = browser.new_page()
         page.set_default_timeout(20000)
         try:
