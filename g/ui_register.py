@@ -1014,16 +1014,48 @@ def main(argv: Optional[list[str]] = None) -> int:
                 service.set_register_proxy(proxy_spec)
             except Exception as exc:
                 log(f"邮箱代理注入失败（不影响注册）: {exc}")
+    result: dict[str, Any] = {
+        "email": "",
+        "password": "",
+        "ok": False,
+        "sso": "",
+        "sso_rw": "",
+        "proxy": proxy_label,
+        "proxy_mode": "pool" if proxy_label else "direct",
+        "steps": [],
+        "error": "",
+    }
+
+    def flush_result(exit_code: int) -> int:
+        """把 result JSON 落盘后返回退出码；早期失败路径与正常收尾共用。
+
+        之前只有正常走完 main() 末尾才写盘，邮箱创建失败等早期 return
+        直接跳出，控制台读到空 error，无法给节点做失败分类。
+        """
+        out_path = (
+            Path(args.out)
+            if args.out
+            else Path("register_sso") / f"ui_{int(time.time())}_{uuid.uuid4().hex[:6]}.json"
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        log(f"结果已写入 {out_path}")
+        log("成功" if result["ok"] else f"失败：{result['error']}")
+        return exit_code
+
     email = args.email.strip()
     if not email:
         log("创建临时邮箱…")
         _, email = service.create_email()
         if not email:
-            log("创建邮箱失败（检查 EMAIL_PROVIDER / 域名池）")
-            return 2
+            result["error"] = "创建邮箱失败（检查 EMAIL_PROVIDER / 域名池）"
+            log(result["error"])
+            return flush_result(2)
     password = args.password or rand_password()
     # 回写：后续 fill_possible_profile / type_password_system 都读 args.password
     args.password = password
+    result["email"] = email
+    result["password"] = password
     log(f"邮箱 {email}")
     log(f"密码 {password}")
 
@@ -1087,18 +1119,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         else:
             log("出口地理探测失败，跳过 geoip 对齐（时区/坐标可能与节点不匹配）")
 
-    result: dict[str, Any] = {
-        "email": email,
-        "password": password,
-        "ok": False,
-        "sso": "",
-        "sso_rw": "",
-        "proxy": proxy_label,
-        "proxy_mode": "pool" if proxy_label else "direct",
-        "steps": [],
-        "error": "",
-    }
-
     def shot(page, name: str) -> None:
         try:
             page.screenshot(path=str(shot_dir / f"{int(time.time())}-{name}.png"))
@@ -1144,10 +1164,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             page.wait_for_selector("input[type='email']", timeout=20000)
         except Exception:
+            result["error"] = "未出现邮箱输入框"
             log("未出现邮箱输入框，页面文本：")
             log(page_text(page)[:300].replace("\n", " | "))
             shot(page, "02-no-email-input")
-            return 3
+            return flush_result(3)
 
         email_input = page.locator("input[type='email']").first
         typed = os_type_into(page, email_input, email)
@@ -1190,14 +1211,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             log(text[:300].replace("\n", " | "))
             result["steps"].append(f"submit_rejected:{nav_elapsed}s")
             shot(page, "04-submit-rejected")
-            return 4
+            return flush_result(4)
 
         if not entered_code_page:
             log(f"未进入验证码页（{nav_elapsed}s），页面文本：")
             log(page_text(page)[:300].replace("\n", " | "))
             result["error"] = f"未进入验证码页（{nav_timeout}s）"
             shot(page, "04-no-code-page")
-            return 5
+            return flush_result(5)
 
         log(f"已进入验证码页（{nav_elapsed}s）")
         result["steps"].append(f"code_page:{nav_elapsed}s")
@@ -1210,7 +1231,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             result["error"] = f"读码失败（{elapsed}s）"
             log(result["error"])
             shot(page, "05-code-timeout")
-            return 6
+            return flush_result(6)
         log(f"验证码 {code}（{elapsed}s）")
         result["steps"].append(f"code:{code}")
 
@@ -1323,12 +1344,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not result["ok"]:
             shot(page, "10-failed")
 
-    out_path = Path(args.out) if args.out else Path("register_sso") / f"ui_{int(time.time())}_{uuid.uuid4().hex[:6]}.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    log(f"结果已写入 {out_path}")
-    log("成功" if result["ok"] else f"失败：{result['error']}")
-    return 0 if result["ok"] else 1
+    return flush_result(0 if result["ok"] else 1)
 
 
 if __name__ == "__main__":

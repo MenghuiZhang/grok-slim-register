@@ -113,6 +113,10 @@ class EmailService:
     _cf_domain_lock = threading.RLock()
     _cf_domain_cursor = 0
     _cf_domain_health: dict[str, dict[str, float]] = {}
+    # auto 模式下从服务端发现的域名缓存：{base_url: (expire_ts, domains)}，
+    # 避免每轮注册都请求一次 settings 接口
+    _cf_discovered_domains: dict[str, tuple[float, tuple[str, ...]]] = {}
+    _CF_DISCOVER_TTL = 600.0
 
     def __init__(self, provider_override: Optional[str] = None, log_fn=None):
         load_dotenv(override=False)
@@ -763,7 +767,24 @@ class EmailService:
         cfg = self.structured_config["providers"]["cloudflare_temp"]
         domains = [str(v).strip() for v in cfg.get("domains") or [] if str(v).strip()]
         if cfg.get("auto_domain") or not domains:
-            return [None]
+            # auto 模式（未配置域名池）：从服务端拉取可用域名列表作为轮换候选，
+            # 让「创建失败 → 切下一域」的既有轮换逻辑在 auto 模式下同样生效；
+            # 拉取失败/无域名时降级为 [None]（服务端自动选域），与旧行为一致。
+            discovered = self._discover_cf_domains()
+            if not discovered:
+                return [None]
+            now = time.time()
+            with EmailService._cf_domain_lock:
+                ready = [
+                    d
+                    for d in discovered
+                    if float(
+                        EmailService._cf_domain_health.get(d, {}).get("cooldown_until") or 0
+                    )
+                    <= now
+                ]
+            # 全部在冷却中也回退 [None]，避免 auto 模式下无候选直接失败
+            return ready or [None]
         now = time.time()
         with EmailService._cf_domain_lock:
             start = EmailService._cf_domain_cursor % len(domains)
@@ -777,6 +798,40 @@ class EmailService:
                 else:
                     ready.append(domain)
             return ready
+
+    def _discover_cf_domains(self) -> tuple[str, ...]:
+        """auto 模式下从服务端拉取可用邮箱域名（带 TTL 缓存）。
+
+        返回域名元组；任何失败返回空元组，调用方降级为 [None]。
+        """
+        if not self.base_url:
+            return ()
+        now = time.time()
+        with EmailService._cf_domain_lock:
+            cached = EmailService._cf_discovered_domains.get(self.base_url)
+            if cached and cached[0] > now:
+                return cached[1]
+        try:
+            data = EmailService.fetch_mail_domains(
+                worker_domain=self.base_url, token=self.freemail_token
+            )
+        except Exception as exc:
+            self._emit(f"拉取邮箱域名列表失败，auto 模式退回服务端自动选域: {exc}", "warn")
+            return ()
+        domains: list[str] = []
+        if isinstance(data, dict) and data.get("ok"):
+            for item in data.get("domains") or []:
+                domain = str(item).strip().lower()
+                if domain and domain not in domains:
+                    domains.append(domain)
+        if not domains:
+            return ()
+        with EmailService._cf_domain_lock:
+            EmailService._cf_discovered_domains[self.base_url] = (
+                now + self._CF_DISCOVER_TTL,
+                tuple(domains),
+            )
+        return tuple(domains)
 
     @classmethod
     def _record_cf_domain_result(cls, domain: Optional[str], ok: bool) -> None:
