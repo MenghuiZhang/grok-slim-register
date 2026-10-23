@@ -81,6 +81,8 @@ ERROR_HINTS = (
     "nicht verfügbar",
     "rate limit",
     "try again later",
+    "sign up another way",
+    "email sign-up isn",
 )
 
 
@@ -104,7 +106,16 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=os.getenv("GROK_FP_OS") or ("macos" if sys.platform == "darwin" else ""),
         help="与真实系统一致（macOS 上不要伪装 windows）",
     )
-    parser.add_argument("--proxy", default=os.getenv("GROK_PROXY") or os.getenv("DEBUG_PROXY") or "")
+    parser.add_argument(
+        "--proxy",
+        default=(
+            os.getenv("GROK_REGISTER_PROXY")
+            or os.getenv("GROK_PROXY")
+            or os.getenv("DEBUG_PROXY")
+            or ""
+        ),
+        help="账号级代理（控制台按轮次租约注入；留空直连）",
+    )
     parser.add_argument("--url", default=SIGNUP_URL)
     parser.add_argument(
         "--from-grok",
@@ -114,6 +125,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--headless", action="store_true", help="无头模式（默认有头便于观察）")
     parser.add_argument("--humanize", action="store_true", help="开启拟人化（默认关）")
     parser.add_argument("--code-timeout", type=int, default=180, help="等待邮件验证码秒数")
+    parser.add_argument(
+        "--submit-nav-timeout",
+        type=int,
+        default=int(os.getenv("GROK_SUBMIT_NAV_TIMEOUT") or 20),
+        help="提交邮箱后等待进入验证码页的秒数；期间持续检测报错文本，命中即快速失败",
+    )
     parser.add_argument("--out", default="", help="SSO 保存路径")
     parser.add_argument("--shot-dir", default="", help="截图目录，默认 logs/ui_register")
     parser.add_argument("--profile", default="", help="持久化 profile 目录（留空则每次临时）")
@@ -726,6 +743,25 @@ def type_password_system(page, value: str) -> bool:
     return type_via_xdotool(page, value)
 
 
+def build_proxy_option(spec: str) -> tuple[dict[str, str], bool]:
+    """把账号租约的 spec 拆成 Camoufox 的 proxy 参数。
+
+    Playwright 的 ``proxy`` 不接受把账号密码塞进 server URL，必须分开传；
+    返回 ``(option, is_loopback)``，loopback 决定是否开 geoip 对齐。
+    """
+    from g.proxy_pool import parse_proxy_line
+
+    parsed = parse_proxy_line(spec)
+    option: dict[str, str] = {
+        "server": f"{parsed['scheme']}://{parsed['host']}:{parsed['port']}"
+    }
+    if parsed["username"]:
+        option["username"] = parsed["username"]
+        option["password"] = parsed["password"]
+    loopback = parsed["host"] in ("127.0.0.1", "localhost", "::1")
+    return option, loopback
+
+
 def turnstile_solved(page) -> bool:
     """检查 Turnstile 是否已下发 token（含 shadow DOM）。"""
     try:
@@ -748,17 +784,44 @@ def turnstile_solved(page) -> bool:
         return False
 
 
-def click_turnstile_macos(page) -> str:
-    """点击 Turnstile checkbox：只做位置点击（按钮相对定位 + 坐标兜底）。
+TURNSTILE_POLL_SECONDS = 12.0
+TURNSTILE_POLL_INTERVAL = 0.5
+
+
+def wait_turnstile(page, seconds: float = TURNSTILE_POLL_SECONDS) -> bool:
+    """轮询等待 widget 下发 token。
+
+    期间绝不重复点击：Turnstile 进入 Verifying 后再点一下就会 reset，
+    表现出来的现象就是「刚勾上又立刻变回未勾选」。
+    """
+    deadline = time.time() + max(1.0, seconds)
+    while time.time() < deadline:
+        if turnstile_solved(page):
+            return True
+        page.wait_for_timeout(int(TURNSTILE_POLL_INTERVAL * 1000))
+    return turnstile_solved(page)
+
+
+def click_turnstile_macos(
+    page,
+    *,
+    poll_seconds: float = TURNSTILE_POLL_SECONDS,
+    max_candidates: int = 5,
+) -> str:
+    """点击 Turnstile checkbox：每次只点一下，然后等 token。
 
     widget 内部是跨域 iframe / closed shadow DOM，DOM 探测拿不到元素；
     资料页布局中 checkbox 与「Complete sign up」按钮同列，相对偏移固定，
-    因此优先按按钮位置推算；每次点击后用 turnstile_solved 校验 token 是否下发。
+    因此优先按按钮位置推算。点击后只轮询等待，不重复点击——
+    重复点击会 reset 正在进行的挑战，token 永远拿不到。
     """
     try:
         page.bring_to_front()
     except Exception:
         pass
+
+    if turnstile_solved(page):
+        return "already-solved"
 
     btn_box = None
     for name in ("Complete sign up", "Sign up"):
@@ -775,18 +838,20 @@ def click_turnstile_macos(page) -> str:
     except Exception:
         inner_w = 0.0
 
-    candidates: list[tuple[int, int, str]] = []
+    primary: list[tuple[int, int, str]] = []
+    tail: list[tuple[int, int, str]] = []
     if btn_box:
         # 纵向：checkbox 中心约在按钮顶边上方 49px（与视口高度无关）
         top = int(btn_box["y"] - 49)
         # 横向：表单居中，checkbox 中心 ≈ (innerWidth - 343) / 2（不同窗口宽度自适应）
         if inner_w >= 900:
-            candidates.append((int((inner_w - 343) / 2), top, "vw-rel"))
-        # 兜底：以按钮左边为锚点横向扫描（覆盖 bbox 与视觉偏差）
+            primary.append((int((inner_w - 343) / 2), top, "vw-rel"))
         base_x = int(btn_box["x"])
-        for dx in (3, 12, 21, 30):
-            candidates.append((base_x + dx, top, f"btn+{dx}"))
-    candidates += [(609, 490, "coord"), (600, 480, "coord"), (618, 500, "coord"), (578, 505, "coord")]
+        primary += [(base_x + 3, top, "btn+3"), (base_x + 12, top, "btn+12")]
+        tail = [(base_x + 21, top, "btn+21"), (base_x + 30, top, "btn+30")]
+    # 坐标兜底按 1500x950 视口测得，放在按钮推算之后
+    coords = [(609, 490, "coord"), (600, 480, "coord2"), (618, 500, "coord3"), (578, 505, "coord4")]
+    candidates = primary + coords + tail
 
     # 去重，避免同一坐标点两次
     seen: set[tuple[int, int]] = set()
@@ -796,27 +861,28 @@ def click_turnstile_macos(page) -> str:
             continue
         seen.add((vx, vy))
         unique.append((vx, vy, tag))
-    candidates = unique
+    candidates = unique[: max(1, max_candidates)]
 
-    # 首次点击可能只是"预热"widget（0x1 iframe 展开），整轮候选最多重试 2 遍
-    for attempt in range(2):
-        if attempt:
-            page.wait_for_timeout(2000)
-        for vx, vy, tag in candidates:
-            try:
-                page.mouse.move(vx - 100, vy - 50, steps=6)
-                page.mouse.move(vx, vy, steps=8)
-                time.sleep(0.05)
-                page.mouse.click(vx, vy)
-                page.wait_for_timeout(2000)
-                page.screenshot(path=f"logs/ui_register/turnstile-{tag}-{vx}-{vy}.png")
-            except Exception as exc:
-                log(f"坐标点击失败: {exc}")
-                continue
-            solved = turnstile_solved(page)
-            log(f"点击 checkbox ({vx},{vy}) via {tag} → solved={solved}")
-            if solved:
-                return f"{tag}({vx},{vy})"
+    for index, (vx, vy, tag) in enumerate(candidates):
+        try:
+            page.mouse.move(vx - 100, vy - 50, steps=6)
+            page.mouse.move(vx, vy, steps=8)
+            time.sleep(0.05)
+            page.mouse.click(vx, vy)
+        except Exception as exc:
+            log(f"坐标点击失败: {exc}")
+            continue
+        try:
+            page.screenshot(path=f"logs/ui_register/turnstile-{tag}-{vx}-{vy}.png")
+        except Exception:
+            pass
+        solved = wait_turnstile(page, poll_seconds)
+        log(f"点击 checkbox ({vx},{vy}) via {tag} → solved={solved}")
+        if solved:
+            return f"{tag}({vx},{vy})"
+        if index + 1 < len(candidates):
+            # 没点到 checkbox 或挑战失败：先等 widget 回落，再试下一个坐标
+            page.wait_for_timeout(1500)
     return "no-iframe"
 
 
@@ -830,6 +896,27 @@ def main(argv: Optional[list[str]] = None) -> int:
     from g.email_service import EmailService  # 延迟导入，避免无 env 时报错
 
     service = EmailService()
+    # 控制台按轮次注入账号级代理（GROK_REGISTER_PROXY）；命令行仍可用 --proxy
+    proxy_spec = str(args.proxy or "").strip()
+    proxy_option: dict[str, str] | None = None
+    proxy_loopback = False
+    proxy_label = ""
+    if proxy_spec:
+        try:
+            proxy_option, proxy_loopback = build_proxy_option(proxy_spec)
+            from g.proxy_pool import mask_proxy
+
+            proxy_label = mask_proxy(proxy_spec)
+        except Exception as exc:
+            log(f"代理解析失败（{exc}），本轮直连")
+            proxy_spec, proxy_option, proxy_loopback = "", None, False
+        else:
+            log(f"节点 {proxy_label}")
+            # 收码请求与注册浏览器同出口（仅 EMAIL_PROXY_MODE=register 时生效）
+            try:
+                service.set_register_proxy(proxy_spec)
+            except Exception as exc:
+                log(f"邮箱代理注入失败（不影响注册）: {exc}")
     email = args.email.strip()
     if not email:
         log("创建临时邮箱…")
@@ -871,9 +958,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.profile:
         kwargs["persistent_context"] = True
         kwargs["user_data_dir"] = args.profile
-    if args.proxy:
-        kwargs["proxy"] = {"server": args.proxy}
-        kwargs["geoip"] = any(h in args.proxy for h in ("127.0.0.1", "localhost", "[::1]"))
+    if proxy_option:
+        kwargs["proxy"] = proxy_option
+        kwargs["geoip"] = proxy_loopback
 
     result: dict[str, Any] = {
         "email": email,
@@ -881,6 +968,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "ok": False,
         "sso": "",
         "sso_rw": "",
+        "proxy": proxy_label,
+        "proxy_mode": "pool" if proxy_label else "direct",
         "steps": [],
         "error": "",
     }
@@ -946,25 +1035,47 @@ def main(argv: Optional[list[str]] = None) -> int:
         submit = click_button(page, SUBMIT_TEXTS, timeout=10000)
         log(f"提交邮箱: {submit or '未找到'}")
         result["steps"].append(f"submit:{submit}")
-        page.wait_for_timeout(6000)
+
+        # 点击后立刻轮询（0.5s 间隔）：进验证码页 → 继续；出现报错文本 → 立即放弃本轮；
+        # 上限内都没出现 → 按超时失败。不再先死等 6s 再等 30s。
+        nav_started = time.time()
+        nav_timeout = max(5.0, float(args.submit_nav_timeout))
+        entered_code_page = False
+        rejected = ""
+        text = ""
+        while time.time() - nav_started < nav_timeout:
+            page.wait_for_timeout(500)
+            try:
+                if page.locator(CODE_SEL).count():
+                    entered_code_page = True
+                    break
+            except Exception:
+                pass
+            text = page_text(page)
+            err = has_error(text)
+            if err:
+                rejected = err
+                break
+        nav_elapsed = round(time.time() - nav_started, 1)
         shot(page, "03-after-submit")
 
-        text = page_text(page)
-        err = has_error(text)
-        if err:
-            result["error"] = f"提交邮箱后被拒: {err}"
+        if rejected:
+            result["error"] = f"提交邮箱后被拒: {rejected}（{nav_elapsed}s）"
             log(result["error"])
             log(text[:300].replace("\n", " | "))
+            result["steps"].append(f"submit_rejected:{nav_elapsed}s")
+            shot(page, "04-submit-rejected")
             return 4
 
-        try:
-            page.wait_for_selector(CODE_SEL, timeout=30000)
-            log("已进入验证码页")
-        except Exception:
-            log("未进入验证码页，页面文本：")
-            log(text[:300].replace("\n", " | "))
+        if not entered_code_page:
+            log(f"未进入验证码页（{nav_elapsed}s），页面文本：")
+            log(page_text(page)[:300].replace("\n", " | "))
+            result["error"] = f"未进入验证码页（{nav_timeout}s）"
             shot(page, "04-no-code-page")
             return 5
+
+        log(f"已进入验证码页（{nav_elapsed}s）")
+        result["steps"].append(f"code_page:{nav_elapsed}s")
 
         log(f"读取邮箱验证码（最多 {args.code_timeout}s）…")
         started = time.time()
@@ -1058,11 +1169,16 @@ def main(argv: Optional[list[str]] = None) -> int:
                     log(result["error"])
                     shot(page, "08-password-empty")
             else:
-                # 主动点击 checkbox（按钮相对定位 + 坐标兜底，点击后校验）
+                # 主动点击 checkbox（按钮相对定位 + 坐标兜底，点击后只等待不重复点）
                 clicked = click_turnstile_macos(page)
                 log(f"Turnstile 点击: {clicked}")
                 result["steps"].append(f"turnstile:click:{clicked}")
-                page.wait_for_timeout(800)
+                solved = turnstile_solved(page) or wait_turnstile(page, 6.0)
+                if solved:
+                    # token 刚下发时 React 还会重渲染，等它写进表单状态再提交
+                    page.wait_for_timeout(1500)
+                log(f"Turnstile token: {'已下发' if solved else '未下发（提交大概率被拒）'}")
+                result["steps"].append(f"turnstile:token:{'ok' if solved else 'missing'}")
                 submit = click_button(page, SUBMIT_TEXTS, timeout=5000)
                 log(f"提交资料: {submit or '未找到'} · 密码长度={password_len}")
                 result["steps"].append(f"submit:{submit}")

@@ -645,6 +645,7 @@
       serverConnected: false,
       pollTimer: null,
       lastPipelineHint: '',
+      autoExchangeSynced: false,  // 「自动换 token」checkbox 只在首次状态同步时初始化，之后不覆盖用户勾选
     };
 
     // 从日志推断当前 CLEAN 阶段（前台 risk 后整号可观测）
@@ -1018,8 +1019,10 @@
       if ($('statEmailCreateInline')) $('statEmailCreateInline').textContent = data.success_count ?? 0;
 
       state.running = !!data.running;
-      if ($('autoExchange') && !state.running && typeof data.auto_exchange_token === 'boolean') {
+      // 仅首次同步服务端默认值；之后轮询不得覆盖，否则用户刚勾选就会被弹回
+      if ($('autoExchange') && !state.autoExchangeSynced && typeof data.auto_exchange_token === 'boolean') {
         $('autoExchange').checked = data.auto_exchange_token;
+        state.autoExchangeSynced = true;
       }
       if (wasRunning !== state.running) schedulePoll();
       if (!state.running && data.status === 'done') {

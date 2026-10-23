@@ -167,8 +167,15 @@ def _lease_token_proxy(account: dict) -> tuple[str | None, object | None, str]:
 
     都没有时返回 ``None``，交给 device_flow 继承进程/环境代理，
     不再强制直连（直连只在代理池为空时才会自然发生）。
+
+    注册节点的原始 spec 只在内存里（``_proxy_spec``），落盘的 ``proxy`` 是脱敏值，
+    所以这里优先读 ``_proxy_spec``，避免拿 ``***`` 去连代理。
     """
-    recorded = str(account.get("proxy") or account.get("proxy_spec") or "").strip()
+    recorded = str(account.get("_proxy_spec") or account.get("proxy_spec") or "").strip()
+    if not recorded:
+        legacy = str(account.get("proxy") or "").strip()
+        if legacy and "***" not in legacy:
+            recorded = legacy
     if recorded:
         try:
             label = mask_proxy(recorded)
@@ -185,6 +192,25 @@ def _lease_token_proxy(account: dict) -> tuple[str | None, object | None, str]:
     if lease.direct:
         return None, None, "直连（代理池为空）"
     return lease.spec, lease, lease.masked
+
+
+_NETWORK_ERROR_HINTS = (
+    "err_",
+    "net::",
+    "econn",
+    "eai_again",
+    "etimedout",
+    "timed out",
+    "timeout",
+    "tunnel connection failed",
+    "proxy",
+    "dns",
+)
+
+
+def _looks_like_network_error(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(hint in text for hint in _NETWORK_ERROR_HINTS)
 
 
 def _release_token_proxy(lease, ok: bool, message: str = "") -> None:
@@ -244,6 +270,13 @@ class RegisterRunner:
         self.success_count = 0
         self.fail_count = 0
         self.output_file = ""
+        # 池里有节点但都被占用时，最多等这么久再跳过该轮（0 = 不等待）
+        try:
+            self.proxy_lease_wait = max(
+                0.0, float(os.getenv("GROK_PROXY_LEASE_WAIT", "120") or 0)
+            )
+        except (TypeError, ValueError):
+            self.proxy_lease_wait = 120.0
 
     def is_running(self) -> bool:
         with self._lock:
@@ -381,6 +414,57 @@ class RegisterRunner:
         payload["_file"] = rel_path
         return payload
 
+    def _read_error(self, rel_path: str) -> str:
+        try:
+            payload = json.loads((BASE_DIR / rel_path).read_text(encoding="utf-8"))
+        except Exception:
+            return ""
+        return str(payload.get("error") or "")
+
+    def _lease_register_proxy(self, wid: int, rnd: int):
+        """每轮注册前从代理池租一个节点。
+
+        返回 ``(lease, skipped)``：
+
+        - ``lease.direct``：代理池为空，本轮直连（与旧行为一致）
+        - ``lease`` 为 None 且 ``skipped=False``：租约异常，本轮直连
+        - ``skipped=True``：等待超时/已停止，本轮不注册
+        """
+        try:
+            summary = proxy_pool.summary()
+        except Exception:
+            summary = {}
+        if summary.get("total") and not summary.get("enabled"):
+            # 全被停用（含 Bot MARKED 自动隔离）时不必干等
+            return None, True
+        try:
+            lease = proxy_pool.acquire(
+                f"w{wid}-r{rnd}",
+                stop_event=self._stop,
+                wait=True,
+                wait_timeout=self.proxy_lease_wait,
+            )
+        except Exception as exc:
+            self._log(f"[W{wid}] 代理租约异常，本轮直连: {exc}", "warn")
+            return None, False
+        if lease is None:
+            return None, True
+        return lease, self._stop.is_set()
+
+    def _release_register_proxy(self, lease, *, ok: bool, error: str, logp: str) -> None:
+        """释放注册节点：成功记 healthy，网络类失败进冷却，其余只计数。"""
+        if lease is None or getattr(lease, "direct", False):
+            return
+        outcome = (
+            "success"
+            if ok
+            else ("network" if _looks_like_network_error(error) else "neutral")
+        )
+        try:
+            proxy_pool.release(lease, outcome=outcome, message=str(error or "")[:160])
+        except Exception as exc:
+            self._log(f"{logp} 释放代理失败: {exc}", "warn")
+
     def _worker(self, wid: int, overrides: dict) -> None:
         logp = f"[W{wid}]"
         with self._lock:
@@ -395,7 +479,33 @@ class RegisterRunner:
                 rnd = self._claim_round()
                 if not rnd:
                     break
-                self._log(f"{logp} 第 {rnd}/{self.target_count} 轮注册开始", "info")
+                lease, skipped = self._lease_register_proxy(wid, rnd)
+                if skipped:
+                    self._release_register_proxy(lease, ok=False, error="", logp=logp)
+                    if self._stop.is_set():
+                        break
+                    with self._lock:
+                        self.fail_count += 1
+                    self._log(
+                        f"{logp} 第 {rnd} 轮跳过：代理池没有可用节点（占用/冷却/停用）",
+                        "warn",
+                    )
+                    continue
+                round_env = dict(overrides)
+                # 旧单代理变量一律不参与注册，节点只由代理池租约决定
+                for legacy in ("GROK_PROXY", "DEBUG_PROXY"):
+                    round_env.pop(legacy, None)
+                if lease is not None and not lease.direct:
+                    # 子进程按账号拿节点：注册浏览器 + 收码邮箱都锁同一出口
+                    round_env["GROK_REGISTER_PROXY"] = lease.spec
+                    node_label = lease.masked
+                else:
+                    round_env.pop("GROK_REGISTER_PROXY", None)
+                    node_label = "直连（代理池为空）"
+                self._log(
+                    f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}",
+                    "info",
+                )
                 rel_out = f"register_sso/ui_{uuid.uuid4().hex}.json"
                 cmd = [
                     sys.executable,
@@ -407,49 +517,75 @@ class RegisterRunner:
                     "--out",
                     rel_out,
                 ]
-                proc = subprocess.Popen(
-                    cmd,
-                    cwd=str(BASE_DIR),
-                    env=self._env(overrides),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-                with self._lock:
-                    self._procs[wid] = proc
-                if proc.stdout is not None:
-                    for raw in proc.stdout:
-                        line = raw.rstrip("\n")
-                        if not line:
-                            continue
-                        if line.startswith("[ui-register] "):
-                            line = line[len("[ui-register] "):]
-                        self._log(f"{logp} {line}", "info")
-                code = proc.wait()
-                with self._lock:
-                    self._procs.pop(wid, None)
-                if self._stop.is_set():
-                    self._log(f"{logp} 已停止", "warn")
-                    break
-                account = self._read_result(rel_out) if code == 0 else None
-                if code == 0 and account:
+                account: dict | None = None
+                code = -1
+                error = ""
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(BASE_DIR),
+                        env=self._env(round_env),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
                     with self._lock:
-                        self.success_count += 1
-                        self.output_file = rel_out
-                    with self.file_lock:
-                        self.recent_success.insert(0, account)
-                        del self.recent_success[200:]
-                    self._log(f"{logp} 成功：{account.get('email')}（sso 已保存）", "success")
-                    # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
-                    if self.auto_exchange_token and account.get("sso"):
-                        self._start_token_exchange(account, wid, seq)
+                        self._procs[wid] = proc
+                    if proc.stdout is not None:
+                        for raw in proc.stdout:
+                            line = raw.rstrip("\n")
+                            if not line:
+                                continue
+                            if line.startswith("[ui-register] "):
+                                line = line[len("[ui-register] "):]
+                            self._log(f"{logp} {line}", "info")
+                    code = proc.wait()
+                    if self._stop.is_set():
+                        self._log(f"{logp} 已停止", "warn")
+                        return
+                    account = self._read_result(rel_out) if code == 0 else None
+                    error = "" if account else self._read_error(rel_out)
+                    if account is not None:
+                        # 原始 spec 只留在内存给换 token 复用，落盘只写脱敏值
+                        if lease is not None and not lease.direct:
+                            account["_proxy_spec"] = lease.spec
+                            account["proxy"] = lease.masked
+                            account["proxy_mode"] = "pool"
+                        else:
+                            account["_proxy_spec"] = ""
+                            account["proxy"] = ""
+                            account["proxy_mode"] = "direct"
+                        self._persist_result(account)
+                    if code == 0 and account:
+                        with self._lock:
+                            self.success_count += 1
+                            self.output_file = rel_out
+                        with self.file_lock:
+                            self.recent_success.insert(0, account)
+                            del self.recent_success[200:]
+                        self._log(
+                            f"{logp} 成功：{account.get('email')}（sso 已保存 · 节点 {node_label}）",
+                            "success",
+                        )
+                        # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
+                        if self.auto_exchange_token and account.get("sso"):
+                            self._start_token_exchange(account, wid, seq)
+                        else:
+                            self._queue_auto_import(account, logp)
                     else:
-                        self._queue_auto_import(account, logp)
-                else:
+                        with self._lock:
+                            self.fail_count += 1
+                        detail = f" · {error}" if error else ""
+                        self._log(
+                            f"{logp} 第 {rnd} 轮失败（exit={code}）{detail}", "error"
+                        )
+                finally:
                     with self._lock:
-                        self.fail_count += 1
-                    self._log(f"{logp} 第 {rnd} 轮失败（exit={code}）", "error")
+                        self._procs.pop(wid, None)
+                    self._release_register_proxy(
+                        lease, ok=account is not None, error=error, logp=logp
+                    )
         except Exception as exc:
             with self._lock:
                 self.error_message = str(exc)

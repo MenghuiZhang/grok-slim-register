@@ -58,6 +58,8 @@ python -m camoufox fetch
 | `UI_HOST` / `UI_PORT` | 控制台监听地址（默认 127.0.0.1:3333） |
 | `MONITOR_TOKEN` | 运维 API（存储/导入）鉴权 |
 | `GROK_CAMOUFOX_HEADLESS` | `1` 无头（默认）/ `0` 有头（调试镜像观察） |
+| `GROK_PROXY_LEASE_WAIT` | 代理池无可用节点时最多等几秒再跳过该轮（默认 120，0 = 不等待） |
+| `GROK_SUBMIT_NAV_TIMEOUT` | 提交邮箱后等待进入验证码页的秒数（默认 20；期间持续检测报错文本，命中立即放弃） |
 | `GROK_AUTO_EXCHANGE_TOKEN` | `1` 注册成功后自动换 token（默认）/ `0` 关闭 |
 | `SUB2API_*` / `UPSTREAM_*` | 导入下游配置（也可在控制台里改） |
 
@@ -86,6 +88,19 @@ python app.py     # http://127.0.0.1:3333
 - 「启动注册」会后台串行执行 `python -m g.ui_register --headless`（一轮一个号），日志实时回显
 - 页面：首页（运行/统计/日志）、邮箱配置、代理设置、导入服务
 - 停止按钮会终止当前轮；已完成账号自动进入右侧列表并可被导入服务引用
+
+### 注册走代理（账号级租约）
+
+每轮注册**开始前**由控制台从代理池租一个节点，通过 `GROK_REGISTER_PROXY`
+注入子进程，注册浏览器和收码邮箱（`EMAIL_PROXY_MODE=register` 时）走同一出口：
+
+- 租到节点 → 日志打印 `本轮注册开始 · 节点 http://***:port`，账号 JSON 里写脱敏的 `proxy` / `proxy_mode`
+- 池子为空 → 本轮直连（日志明确写「直连（代理池为空）」）
+- 池里有节点但全被占用/冷却/停用 → 等 `GROK_PROXY_LEASE_WAIT` 秒（默认 120，0 = 不等），
+  仍没有就**跳过该轮**并计失败，不会偷偷直连
+- 轮次结束按结果释放：成功记 healthy，`ERR_*` / timeout 等网络类失败进冷却，其他只计数
+- 初始化时的 `GROK_PROXY` / `DEBUG_PROXY` 已废弃：控制台会从子进程环境里剔除，
+  单轮排查请用 `python -m g.ui_register --proxy http://...`
 
 ### 注册后自动换 token
 
@@ -367,10 +382,15 @@ docker compose -f compose.yaml -f compose.debug.yaml up -d --no-build
 注册流程按视觉位置点击 checkbox：
 
 1. 读取「Complete sign up」按钮的 bounding box，按固定相对偏移推算 checkbox 位置（布局无关，有头/无头通用）
-2. 兜底坐标候选 + 整轮重试（首次点击可能只是"预热" 0×1 iframe）
-3. 每次点击后校验 `cf-turnstile-response` token 是否下发，命中即返回
+2. 兜底坐标候选（按 `1500x950` 测得），按钮定位优先
+3. **每次只点一下**，然后轮询 `cf-turnstile-response` 最多 12s；期间绝不重复点击
+4. 只有等满仍没有 token 才换下一个候选坐标（Turnstile 进入 Verifying 后再点会 reset，
+   表现就是"刚勾上又立刻弹回未勾选"）
+5. 拿到 token 后等 1.5s 让 React 写进表单状态，再点提交
 
 不使用外部 Solver，也不注入 token——必须让 widget 自身变绿才能通过提交。
+若日志里 `solved=False` 反复出现且 widget 一直回落，优先怀疑出口 IP 被判定为 bot
+（机房直连 / 无头），换住宅代理或用 `GROK_CAMOUFOX_HEADLESS=0` 复现。
 
 ## 导入分发（import-services）
 
@@ -383,6 +403,12 @@ docker compose -f compose.yaml -f compose.debug.yaml up -d --no-build
 ## 常见问题
 
 - **邮箱配置不可用**：先在「邮箱配置」页填好并测试 provider，或检查 `.env` 中对应变量
+- **"Email sign-up isn't available right now"**：域名/IP 被 xAI 拒绝邮箱注册；脚本提交后
+  每 0.5s 检测一次页面文本，命中报错 1–2s 内即放弃本轮（默认最多等 20s 进验证码页，
+  可用 `GROK_SUBMIT_NAV_TIMEOUT` 调整），worker 自动开下一轮换邮箱换节点
+- **控制台「自动换 token」勾选被弹回**：已修复——checkbox 只在页面首次加载时同步服务端值，
+  之后不再被轮询覆盖
 - **域名池没有已启用域名**：邮箱配置页启用至少一个域名，或清空域名池让其自动选域
-- **Turnstile 点不中**：确认窗口尺寸与实际一致；坐标兜底按 `1500x950` 测得，换尺寸优先依赖按钮相对定位
+- **Turnstile 点不中 / 勾上又弹回**：确认窗口尺寸与实际一致（坐标兜底按 `1500x950` 测得）；
+  若一直回落，先看日志的节点出口，机房 IP + 无头最容易触发 reset
 - **无头模式下邮箱输入**：macOS OS 键盘在无头下不可用，脚本会自动回退到 Playwright `fill`

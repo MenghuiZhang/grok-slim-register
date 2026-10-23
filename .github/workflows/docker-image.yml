@@ -57,8 +57,10 @@ jobs:
       - name: 解析构建参数
         id: cfg
         run: |
-          platform="${{ inputs.platform }}"
-          echo "platform=${platform:-linux/amd64}" >> "$GITHUB_OUTPUT"
+          # 平台优先级：手动输入 > 仓库变量 GROK_PLATFORMS > 默认 amd64
+          # 想每次都出双架构，就在 Settings → Variables 配 GROK_PLATFORMS=linux/amd64,linux/arm64
+          platform="${{ inputs.platform || vars.GROK_PLATFORMS || 'linux/amd64' }}"
+          echo "platform=${platform}" >> "$GITHUB_OUTPUT"
           # PR 只构建不推送；workflow_dispatch 时尊重 push 开关
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "push=false" >> "$GITHUB_OUTPUT"
