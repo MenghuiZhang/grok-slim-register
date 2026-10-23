@@ -46,10 +46,6 @@ concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # GHCR 镜像名：ghcr.io/<owner>/<repo>（metadata-action 会自动转小写）
-  IMAGE: ghcr.io/${{ github.repository }}
-
 permissions:
   contents: read
   packages: write
@@ -59,6 +55,7 @@ jobs:
     name: 解析构建参数
     runs-on: ubuntu-latest
     outputs:
+      image: ${{ steps.cfg.outputs.image }}
       build_amd64: ${{ steps.cfg.outputs.build_amd64 }}
       build_arm64: ${{ steps.cfg.outputs.build_arm64 }}
       push: ${{ steps.cfg.outputs.push }}
@@ -66,6 +63,8 @@ jobs:
       - name: 解析构建参数
         id: cfg
         run: |
+          # GHCR 镜像名必须全小写（ghcr.io/<owner>/<repo>）
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           # 平台优先级：手动输入 > 仓库变量 GROK_PLATFORMS > 默认双架构
           # 想固定单架构就在 Settings → Variables 配 GROK_PLATFORMS=linux/amd64（构建更快）
           platform="${{ inputs.platform || vars.GROK_PLATFORMS || 'linux/amd64,linux/arm64' }}"
@@ -119,7 +118,7 @@ jobs:
           # 注意：不能写成 push=='true' && '' || ... —— 空串是 falsy，|| 会取到 tag，
           # 导致 push-by-digest 时带上 tag 而 buildx 报错
           tags: ${{ needs.cfg.outputs.push != 'true' && 'ci-validate:local' || '' }}
-          outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=docker' }}
+          outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', needs.cfg.outputs.image) || 'type=docker' }}
           # CI runner 能访问 GitHub Releases，用在线安装，不需要 vendor/ 离线包。
           # 想用镜像/反代：在仓库 Variables 里配 CAMOUFOX_ZIP_URL / CAMOUFOX_MODEL_URL，留空走 GitHub 官方
           build-args: |
@@ -184,7 +183,7 @@ jobs:
           # 注意：不能写成 push=='true' && '' || ... —— 空串是 falsy，|| 会取到 tag，
           # 导致 push-by-digest 时带上 tag 而 buildx 报错
           tags: ${{ needs.cfg.outputs.push != 'true' && 'ci-validate:local' || '' }}
-          outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=docker' }}
+          outputs: ${{ needs.cfg.outputs.push == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', needs.cfg.outputs.image) || 'type=docker' }}
           build-args: |
             CAMOUFOX_INSTALL=online
             CAMOUFOX_ZIP_URL=${{ vars.CAMOUFOX_ZIP_URL }}
@@ -241,7 +240,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ needs.cfg.outputs.image }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
@@ -253,7 +252,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "${{ env.IMAGE }}@sha256:%s " *)
+            $(printf "${{ needs.cfg.outputs.image }}@sha256:%s " *)
 
       - name: 检查镜像
-        run: docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+        run: docker buildx imagetools inspect "${{ needs.cfg.outputs.image }}:${{ steps.meta.outputs.version }}"
