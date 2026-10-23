@@ -1,0 +1,32 @@
+name: Cleanup Actions cache
+
+# 每周定时清空本仓库的 GHA 构建缓存，防止 10GB 配额被镜像层
+# （Camoufox 浏览器层 ~1.3GiB×2）永久占满。
+#
+# 构建工作流（docker-image.yml）本身不再清缓存：平时每次构建照常
+# 命中 type=gha 缓存做增量构建（快），缓存由这里每周统一清一次（盘子归零）。
+#
+# 手动触发：Actions → Cleanup Actions cache → Run workflow
+# 注意：schedule 只在默认分支（main）上生效。
+on:
+  schedule:
+    - cron: "0 18 * * 0" # 每周日 UTC 18:00（北京时间周一凌晨 2 点）
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    name: 清空构建缓存
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除全部 Actions 缓存
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== 清理前缓存 ==="
+          gh cache list || true
+          gh cache delete --all || true
+          echo "=== 清理后缓存 ==="
+          gh cache list || true
