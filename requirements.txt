@@ -1,7 +1,10 @@
-python-dotenv
-requests
-curl_cffi
-beautifulsoup4
+python-dotenv>=1.2
+requests>=2.32
+urllib3>=2.2
+curl_cffi>=0.15
+beautifulsoup4>=4.14
 filelock>=3.13
-flask
-camoufox[geoip]
+flask>=3.1
+# 版本固定：camoufox 的 browser-pin.json 决定浏览器 build（0.5.8 → 156.0.1-beta.36），
+# 升级它会同时更换浏览器版本，需与 vendor/ 离线包或 CI 下载的 zip 对齐。
+camoufox[geoip]==0.5.8

@@ -315,6 +315,11 @@
           <p class="text-xs text-ink-700/50 font-mono mt-1">废号尝试 · 非目标</p>
         </article>
         <article class="panel rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已换 Token</p>
+          <p id="statToken" class="mt-1 font-display text-3xl font-bold text-brand-600">0</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">失败 <span id="statTokenFail">0</span></p>
+        </article>
+        <article class="panel rounded-2xl p-4">
           <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">平均速度</p>
           <p id="statAvg" class="mt-1 font-display text-3xl font-bold text-brand-600">—</p>
           <p class="text-xs text-ink-700/50 font-mono mt-1">秒 / 邮箱</p>
@@ -387,6 +392,10 @@
                   <input id="targetCustom" type="number" min="1" max="100000" placeholder="自定义数量，例如 25"
                          class="field mt-2" />
                 </div>
+                <label class="flex items-start gap-2 text-xs text-ink-700/70 cursor-pointer select-none">
+                  <input id="autoExchange" type="checkbox" checked class="mt-0.5 rounded border-paper-300 text-brand-500 focus:ring-brand-500/30" />
+                  <span>注册后自动换 token<small class="block text-[11px] text-ink-700/45">SSO → access_token（device flow，复用代理节点 · 串行），结果回写并供导入复用</small></span>
+                </label>
                 <div class="grid grid-cols-2 gap-3 pt-1">
                   <button id="btnStart" type="submit" class="btn btn-primary">启动注册</button>
                   <button id="btnStop" type="button" class="btn btn-danger" disabled>停止</button>
@@ -995,6 +1004,13 @@
       if ($('statTargetInline')) $('statTargetInline').textContent = data.target_count ?? 0;
       $('statFail').textContent = data.fail_count ?? 0;
       $('statAvg').textContent = data.avg_seconds ? `${data.avg_seconds}s` : '—';
+      if ($('statToken')) {
+        const ok = data.token_ok_count ?? 0;
+        const fail = data.token_fail_count ?? 0;
+        const pendingCount = data.token_pending_count ?? 0;
+        $('statToken').textContent = pendingCount ? `${ok} · ${pendingCount}中` : `${ok}`;
+        $('statTokenFail').textContent = fail;
+      }
       $('statElapsed').textContent = `${data.elapsed ?? 0}s`;
       $('progressLabel').textContent = `${data.progress ?? 0}%`;
       $('progressBar').style.width = `${data.progress ?? 0}%`;
@@ -1002,9 +1018,12 @@
       if ($('statEmailCreateInline')) $('statEmailCreateInline').textContent = data.success_count ?? 0;
 
       state.running = !!data.running;
+      if ($('autoExchange') && !state.running && typeof data.auto_exchange_token === 'boolean') {
+        $('autoExchange').checked = data.auto_exchange_token;
+      }
       if (wasRunning !== state.running) schedulePoll();
       if (!state.running && data.status === 'done') {
-        setPipelineHint(`本轮结束 · 成功 ${data.success_count ?? 0} / 失败 ${data.fail_count ?? 0} / 目标 ${data.target_count ?? 0}`);
+        setPipelineHint(`本轮结束 · 成功 ${data.success_count ?? 0} / 失败 ${data.fail_count ?? 0} / 换 token ${data.token_ok_count ?? 0}✓ ${data.token_fail_count ?? 0}✗`);
       }
       if (!state.running && data.status === 'error') {
         setPipelineHint(`异常终止 · ${data.error_message || '查看日志'}`);
@@ -1014,6 +1033,7 @@
       workerSelect._setDisabled(state.running);
       targetSelect._setDisabled(state.running);
       $('targetCustom').disabled = state.running;
+      if ($('autoExchange')) $('autoExchange').disabled = state.running;
       $('btnSaveConfig').disabled = state.running;
 
       if (data.env) {
@@ -1040,6 +1060,13 @@
           const ssoBadge = it.sso
             ? '<span class="text-leaf-600 font-semibold">sso✓</span>'
             : '<span class="text-ink-700/35">sso·</span>';
+          const tokenBadge = it.has_token
+            ? '<span class="text-brand-600 font-semibold">token✓</span>'
+            : (it.token_status === 'failed'
+              ? '<span class="text-sun-500 font-semibold">token✗</span>'
+              : (it.token_status === 'imported'
+                ? '<span class="text-ink-700/40">已导入</span>'
+                : '<span class="text-ink-700/35">token…</span>'));
           return `
           <div class="flex items-center justify-between gap-3 rounded-xl border border-ink-900/5 bg-paper-50 px-3 py-2">
             <div class="min-w-0">
@@ -1050,6 +1077,7 @@
             <div class="shrink-0 text-right space-y-1">
               <div class="flex items-center justify-end gap-2">
                 ${ssoBadge}
+                ${tokenBadge}
               </div>
               <div class="text-ink-700/35">${escapeHtml(it.time || '')}</div>
             </div>
@@ -1102,9 +1130,10 @@
         else if (state.running && state.lastStatus) {
           const ec = state.lastStatus.success_count ?? 0;
           const tc = state.lastStatus.target_count ?? 0;
-          const cc = state.lastStatus.clean_count ?? 0;
-          const uc = state.lastStatus.unchecked_count ?? 0;
-          setPipelineHint(`运行中 · 创邮 ${ec}/${tc} · CLEAN ${cc} · UNCHECKED ${uc} · 见下方双栏日志`);
+          const ok = state.lastStatus.token_ok_count ?? 0;
+          const bad = state.lastStatus.token_fail_count ?? 0;
+          const pendingCount = state.lastStatus.token_pending_count ?? 0;
+          setPipelineHint(`运行中 · 创邮 ${ec}/${tc} · 换 token ${ok}✓ ${bad}✗ ${pendingCount}中 · 见下方双栏日志`);
         }
         state.pollFailCount = 0;
         if (!state.serverConnected) {
@@ -1282,7 +1311,11 @@
         const data = await fetchJSON('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target, workers: Number($('workers').value || 3) }),
+          body: JSON.stringify({
+            target,
+            workers: Number($('workers').value || 3),
+            auto_exchange: $('autoExchange') ? $('autoExchange').checked : true,
+          }),
         });
         setMessage($('formMessage'), data.message || '已启动', true);
         renderStatus(data);

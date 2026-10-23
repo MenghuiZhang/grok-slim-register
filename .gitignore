@@ -64,5 +64,6 @@ proxies*.txt
 backups/
 *.bak-*
 
-# 离线构建用的浏览器包（1.2GB，不入库）
-vendor/
+# 离线构建用的浏览器包（1.2GB，不入库；只保留目录占位让 Docker COPY 不报错）
+vendor/*
+!vendor/.gitkeep

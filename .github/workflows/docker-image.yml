@@ -1,0 +1,117 @@
+name: Build Docker image
+
+# 三种触发：
+# 1) 手动 Run workflow（可选平台 / 是否推送）
+# 2) push 到 main 或打 v* tag → 构建并推送到 GHCR
+# 3) PR 改动构建相关文件 → 只构建不推送（校验能编过）
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "构建平台（多平台会更慢，需要 QEMU）"
+        type: choice
+        options:
+          - linux/amd64
+          - linux/arm64
+          - linux/amd64,linux/arm64
+        default: linux/amd64
+      push:
+        description: "推送到 GHCR"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - Dockerfile
+      - docker/**
+      - requirements.txt
+      - app.py
+      - g/**
+      - templates/**
+      - .github/workflows/docker-image.yml
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # GHCR 镜像名：ghcr.io/<owner>/<repo>（metadata-action 会自动转小写）
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 解析构建参数
+        id: cfg
+        run: |
+          platform="${{ inputs.platform }}"
+          echo "platform=${platform:-linux/amd64}" >> "$GITHUB_OUTPUT"
+          # PR 只构建不推送；workflow_dispatch 时尊重 push 开关
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.push }}" = "false" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 释放磁盘空间
+        # 镜像约 10GB，标准 runner 默认可用空间不够，先清理预装 SDK
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af || true
+          df -h /
+
+      - name: Set up QEMU
+        if: contains(steps.cfg.outputs.platform, 'arm64')
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        if: steps.cfg.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 计算 tags / labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=ref,event=branch
+            type=sha,format=short
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ steps.cfg.outputs.platform }}
+          push: ${{ steps.cfg.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # CI runner 能访问 GitHub Releases，用在线安装，不需要 vendor/ 离线包。
+          # 想用镜像/反代：在仓库 Variables 里配 CAMOUFOX_ZIP_URL / CAMOUFOX_MODEL_URL，留空走 GitHub 官方
+          build-args: |
+            CAMOUFOX_INSTALL=online
+            CAMOUFOX_ZIP_URL=${{ vars.CAMOUFOX_ZIP_URL }}
+            CAMOUFOX_MODEL_URL=${{ vars.CAMOUFOX_MODEL_URL }}
+          # 镜像约 10GB，用 gha 缓存跨次复用；仓库缓存上限 10GB，mode=max 可能频繁淘汰
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false

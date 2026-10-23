@@ -36,6 +36,8 @@
 - Python 3.10+
 - Camoufox 浏览器（首次 `python -m camoufox fetch` 下载）
 - macOS 下可用系统级键盘输入提升兼容性（无权限时自动回退到 Playwright 注入）
+- `camoufox` 版本已锁在 `0.5.8`：它对应的浏览器 build 是 `156.0.1-beta.36`，
+  升级 camoufox 会同时换浏览器版本，需要同步 `vendor/` 离线包和 CI 下载的 zip
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -56,6 +58,7 @@ python -m camoufox fetch
 | `UI_HOST` / `UI_PORT` | 控制台监听地址（默认 127.0.0.1:3333） |
 | `MONITOR_TOKEN` | 运维 API（存储/导入）鉴权 |
 | `GROK_CAMOUFOX_HEADLESS` | `1` 无头（默认）/ `0` 有头（调试镜像观察） |
+| `GROK_AUTO_EXCHANGE_TOKEN` | `1` 注册成功后自动换 token（默认）/ `0` 关闭 |
 | `SUB2API_*` / `UPSTREAM_*` | 导入下游配置（也可在控制台里改） |
 
 `data/domain_pool.json`、`data/proxy_pool.json` 为运行时状态，由控制台维护，不需要手填。
@@ -72,6 +75,7 @@ python -m g.ui_register --proxy http://...    # 走指定代理
 ```
 
 结果写入 `register_sso/ui_<ts>.json`（`ok` / `email` / `sso` / `steps` / `error`）。
+控制台启动的注册还会在后台补写 `auth_token` / `token_status`（见下文「注册后自动换 token」）。
 
 ### Web 控制台
 
@@ -83,12 +87,50 @@ python app.py     # http://127.0.0.1:3333
 - 页面：首页（运行/统计/日志）、邮箱配置、代理设置、导入服务
 - 停止按钮会终止当前轮；已完成账号自动进入右侧列表并可被导入服务引用
 
+### 注册后自动换 token
+
+每个号注册成功拿到 `sso` 后会立即在后台异步跑 device flow
+（`g/device_flow.py`，SSO → OIDC device approve → `access_token`）：
+
+- 换票复用节点：优先账号记录的注册节点，其次从代理池租一个（`wait=False`，不阻塞），
+  池子为空/无可用节点时才继承环境代理或直连；全局串行 + 限流冷却，避免 approve 互相踩踏
+- 成功结果回写 `register_sso/ui_*.json`（`auth_token` / `token_status`）并进入成功列表缓存
+- 换票完成（成功或失败）后才交给导入服务：成功直接用缓存 token 直写，
+  失败则由导入服务再跑一次 device flow 兜底
+- 日志走右侧「Risk · Token · NSFW」副区；不阻塞注册主循环，吞吐不受影响
+- 关闭方式：启动面板取消勾选「注册后自动换 token」，或设 `GROK_AUTO_EXCHANGE_TOKEN=0`
+
 ## Docker 部署
 
 ### 生产（控制台）
 
-构建镜像需要 Camoufox 的 Linux 浏览器包（GitHub Releases 在部分网络下不可达）。
-首次构建前把两个文件放进 `vendor/`（目录已 gitignore）：
+构建镜像需要 Camoufox 的 Linux 浏览器包。三种方式，优先级从高到低：
+
+| 方式 | 构建参数 | 说明 |
+|---|---|---|
+| 直连 URL（最可控） | `CAMOUFOX_ZIP_URL` (+`CAMOUFOX_MODEL_URL`) | 自己给 zip 地址，镜像/反代/私有仓库都行，**不同步版本、不查 release** |
+| 在线 fetch | `CAMOUFOX_INSTALL=online` (+`CAMOUFOX_VERSION`) | 用 camoufox 自带下载器，会先同步 3 个仓库的版本列表 |
+| 离线包 | 默认 `offline` | 解压 `vendor/` 里的 zip，版本固定，无网络依赖 |
+
+```bash
+# 1) 直连镜像（推荐国内网络）：浏览器 ~1.28GB，绕开 GitHub 直连
+CAMOUFOX_ZIP_URL=https://<你的镜像>/https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.36/camoufox-156.0.1-beta.36-lin.arm64.zip \
+CAMOUFOX_MODEL_URL=https://<你的镜像>/https://github.com/scrapfly/fingerprint-generator/releases/download/model-2/2026/model-release.zip \
+docker compose up -d --build
+
+# 2) 在线 fetch，并指定仓库：Official / CoryKing / JWriter20（见 camoufox 包内 repos.yml）
+CAMOUFOX_INSTALL=online CAMOUFOX_VERSION=Official/stable/156.0.1-beta.36 docker compose up -d --build
+```
+
+> **为什么“一直在查找 camoufox 版本”**：走 `online` 时 camoufox 会先 `Syncing repositories...`，
+> 依次拉 `Official`(约 0.5s)、`CoryKing`(常 30s+)、`JWriter20`，共 30–60s；之后才开始下载 1.28GB 浏览器包，
+> 非 TTY 下没有进度条，看着就像卡住。指定 `CAMOUFOX_ZIP_URL` 可以完全跳过这两步。
+>
+> **注意**：camoufox 包用 `browser-pin.json` 固定浏览器 build（当前 `156.0.1-beta.36`），
+> 镜像里的 zip 必须是同一个 release，否则 `camoufox path` 找不到可用版本。换版本要连 `requirements.txt` 里的
+> camoufox 一起升级。
+
+离线构建则把两个文件放进 `vendor/`（目录已 gitignore，仅保留 `.gitkeep` 占位）：
 
 1. `camoufox-156.0.1-beta.36-lin.arm64.zip`
    <https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.36/camoufox-156.0.1-beta.36-lin.arm64.zip>
@@ -105,9 +147,67 @@ docker compose up -d --build
 `compose.yaml` 会挂载 `.env`、`data/`、`logs/`、`register_sso/`、`converted_auth/`，
 容器内运行 `python app.py`。
 
+### GitHub Actions 构建（不需要 vendor/）
+
+`.github/workflows/docker-image.yml` 已配好，三种触发：
+
+| 触发 | 行为 |
+|---|---|
+| push 到 `main` | 构建 + 推送 GHCR（`latest`、分支名、`sha-xxxx`） |
+| push `v*` tag | 构建 + 推送 GHCR（tag 名） |
+| Actions 页手动 `Run workflow` | 可选平台（`linux/amd64` / `linux/arm64` / 两个都用）与是否推送 |
+| Pull Request | 只构建不推送，验证 Dockerfile 能编过 |
+
+- CI 默认用 `build-args: CAMOUFOX_INSTALL=online`，构建时 `python -m camoufox fetch` + 安装 fpgen 模型，
+  不依赖 `vendor/`；要用固定版本就再加 `CAMOUFOX_VERSION=Official/stable/<版本>`
+- 想走镜像/反代：在仓库 **Settings → Variables** 配 `CAMOUFOX_ZIP_URL` / `CAMOUFOX_MODEL_URL`，workflow 会自动传入
+- 镜像地址：`ghcr.io/<owner>/<repo>:<tag>`，默认私有，需 `GITHUB_TOKEN`（workflow 已用内置 `GITHUB_TOKEN` 登录）
+- 镜像约 3.5GB（见下“镜像体积”），GitHub runner 直连 GitHub Releases 通常 10–20 分钟；
+  选了 `linux/arm64` 会走 QEMU，明显更慢
+- 缓存用 `type=gha`（仓库上限 10GB，`mode=max` 可能被频繁淘汰，可改 registry cache）
+
+拉取和运行：
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u <owner> --password-stdin
+docker pull ghcr.io/<owner>/<repo>:latest
+docker run -d --name grok-web --init --shm-size=2gb \
+  -p 127.0.0.1:3333:3333 \
+  -v "$PWD/.env:/app/.env" -v "$PWD/data:/app/data" -v "$PWD/logs:/app/logs" \
+  -v "$PWD/keys:/app/keys" -v "$PWD/register_sso:/app/register_sso" \
+  -v "$PWD/converted_auth:/app/converted_auth" \
+  ghcr.io/<owner>/<repo>:latest
+```
+
+也可以直接改 `compose.yaml` 的 `image:`（或设 `GROK_IMAGE_REF=ghcr.io/<owner>/<repo>:latest`）跑 `docker compose up -d --no-build`。
+
+### 镜像体积
+
+`Dockerfile` 分两阶段：`builder` 装依赖、下浏览器，最终镜像只 `COPY --from` venv 和 `~/.cache/camoufox`。
+实测（linux/arm64，`CAMOUFOX_ZIP_URL` 模式）：镜像内容 **3.36GB**，压缩后 **1.50GB**
+（`docker image inspect .Size`）
+
+| 内容 | 约体积 |
+|---|---|
+| 浏览器 `~/.cache/camoufox` | 2.5GB |
+| venv（flask / curl_cffi / camoufox / playwright…） | 347MB |
+| 浏览器系统库（apt） | 341MB |
+| 运行代码 | ~1MB |
+
+> Docker Desktop 的 `docker images` 数字会因共享层/统计口径偏大（同一镜像可能显示 5GB），
+> 以 `docker image inspect --format '{{.Size}}'` 或 `docker save | wc -c` 为准。
+
+旧版 10GB 的原因（已修）：
+1. `COPY vendor/ /tmp/vendor/` 把 1.28GB 离线包永久写进镜像层（后来又 `rm` 也没用，层不会缩小）
+2. `COPY . .` 又把 `vendor/` 复制进 `/app/vendor`，同一个包打了两份
+3. 在旧镜像上叠加构建，把历史层一起继承
+
+现在的处理：`vendor` 不下发到最终镜像（离线安装只在 builder 里发生），运行代码按白名单 `COPY`（不含 `vendor/`、`logs/`、`data/`）。
+
 ### 可视化调试（noVNC）
 
 ```bash
+# 没有 vendor/ 时加 --build-arg CAMOUFOX_INSTALL=online
 docker build -t cloudtemp-grokzhuce:local .
 docker build -f Dockerfile.debug -t cloudtemp-grokzhuce:debug .
 docker compose -f compose.yaml -f compose.debug.yaml up -d --no-build

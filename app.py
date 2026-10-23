@@ -162,14 +162,56 @@ def _sso_preview(sso: object) -> str:
     return (text[:10] + "…" + text[-6:]) if len(text) > 20 else ("已读取" if text else "")
 
 
+def _lease_token_proxy(account: dict) -> tuple[str | None, object | None, str]:
+    """换票节点：优先复用账号记录的注册节点，其次从代理池租一个。
+
+    都没有时返回 ``None``，交给 device_flow 继承进程/环境代理，
+    不再强制直连（直连只在代理池为空时才会自然发生）。
+    """
+    recorded = str(account.get("proxy") or account.get("proxy_spec") or "").strip()
+    if recorded:
+        try:
+            label = mask_proxy(recorded)
+        except Exception:
+            label = "已记录节点"
+        return recorded, None, label
+    name = str(account.get("id") or account.get("email") or "token-exchange")
+    try:
+        lease = proxy_pool.acquire(name, wait=False)
+    except Exception:
+        return None, None, "环境代理/直连"
+    if lease is None:
+        return None, None, "环境代理/直连"
+    if lease.direct:
+        return None, None, "直连（代理池为空）"
+    return lease.spec, lease, lease.masked
+
+
+def _release_token_proxy(lease, ok: bool, message: str = "") -> None:
+    if lease is None:
+        return
+    try:
+        # 换票失败多是账号/限流问题，不拿它给节点记风险；成功则刷新节点健康
+        proxy_pool.release(
+            lease,
+            outcome="success" if ok else "neutral",
+            message=str(message or "")[:160],
+        )
+    except Exception:
+        pass
+
+
 class RegisterRunner:
     """注册流程管理器：N 个 worker 并行，每个 worker 串行驱动子进程注册。
 
     - 每个 worker 独立子进程（独立浏览器、独立临时 profile，跑完即销毁）
     - 每轮结果写独立 --out 文件，精确归属；成功号进入 recent_success 供导入服务引用
+    - 成功后异步换 token（SSO → access_token）：结果回写 JSON 并缓存给导入服务复用
     """
 
     MAX_WORKERS = 8
+    # 换 token 单次超时（秒）；device flow 本身还有内部轮询预算
+    TOKEN_EXCHANGE_TIMEOUT = 28
 
     def __init__(self, log_fn) -> None:
         self._log = log_fn
@@ -179,6 +221,15 @@ class RegisterRunner:
         self._stop = threading.Event()
         self._next_round = 0
         self._live_workers = 0
+        # device flow 串行：同一时刻只换一个号，避免 approve/rate_limited 互相踩踏
+        self._token_lock = threading.Lock()
+        self._pending_tokens = 0
+        self._finalized = True
+        # 批次序号：防止上一批的收尾线程误结束下一批任务
+        self._run_seq = 0
+        self.auto_exchange_token = True
+        self.token_ok_count = 0
+        self.token_fail_count = 0
         self.file_lock = threading.RLock()
         self.recent_success: list[dict] = []
         self.on_run_start = None
@@ -196,7 +247,8 @@ class RegisterRunner:
 
     def is_running(self) -> bool:
         with self._lock:
-            return any(t.is_alive() for t in self._threads)
+            # 注册子进程跑完但后台还在换 token，也算任务进行中（UI 不应判定结束）
+            return self._live_workers > 0 or self._pending_tokens > 0
 
     def start(self, target: int = 1, workers: int = 3, env_overrides: dict | None = None) -> dict:
         with self._lock:
@@ -212,6 +264,18 @@ class RegisterRunner:
             self._next_round = 0
             self.success_count = 0
             self.fail_count = 0
+            self.token_ok_count = 0
+            self.token_fail_count = 0
+            self._pending_tokens = 0
+            self._finalized = False
+            self._run_seq += 1
+            raw_exchange = str(
+                (env_overrides or {}).get(
+                    "GROK_AUTO_EXCHANGE_TOKEN",
+                    os.environ.get("GROK_AUTO_EXCHANGE_TOKEN", "1"),
+                )
+            ).strip().lower()
+            self.auto_exchange_token = raw_exchange not in ("0", "false", "no", "off")
             self.output_file = ""
             count = min(self.workers, self.target_count)
             self._threads = [
@@ -275,12 +339,18 @@ class RegisterRunner:
                 "error_message": self.error_message,
                 "register_mode": "ui",
                 "risk_check_enabled": False,
+                "auto_exchange_token": self.auto_exchange_token,
+                "token_ok_count": self.token_ok_count,
+                "token_fail_count": self.token_fail_count,
+                "token_pending_count": self._pending_tokens,
                 "recent_success": [
                     {
                         "id": item.get("id"),
                         "email": item.get("email") or "",
                         "sso_preview": _sso_preview(item.get("sso")),
                         "sso": bool(item.get("sso")),
+                        "has_token": is_auth_token_usable(item.get("auth_token")),
+                        "token_status": str(item.get("token_status") or ""),
                     }
                     for item in accounts
                 ],
@@ -313,6 +383,8 @@ class RegisterRunner:
 
     def _worker(self, wid: int, overrides: dict) -> None:
         logp = f"[W{wid}]"
+        with self._lock:
+            seq = self._run_seq
         try:
             if wid == 1 and callable(self.on_run_start):
                 try:
@@ -369,11 +441,11 @@ class RegisterRunner:
                         self.recent_success.insert(0, account)
                         del self.recent_success[200:]
                     self._log(f"{logp} 成功：{account.get('email')}（sso 已保存）", "success")
-                    if callable(self.on_account):
-                        try:
-                            self.on_account([account])
-                        except Exception as exc:
-                            self._log(f"自动导入入队失败: {exc}", "warn")
+                    # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
+                    if self.auto_exchange_token and account.get("sso"):
+                        self._start_token_exchange(account, wid, seq)
+                    else:
+                        self._queue_auto_import(account, logp)
                 else:
                     with self._lock:
                         self.fail_count += 1
@@ -383,19 +455,146 @@ class RegisterRunner:
                 self.error_message = str(exc)
             self._log(f"[W{wid}] worker 异常: {exc}", "error")
         finally:
-            finalize = False
             with self._lock:
                 self._procs.pop(wid, None)
                 self._live_workers -= 1
-                if self._live_workers <= 0:
-                    self.end_time = time.time()
-                    self.status = "error" if self.error_message else ("idle" if self._stop.is_set() else "done")
-                    finalize = True
-            if finalize and callable(self.on_run_complete):
+                finalize = (
+                    self._run_seq == seq
+                    and self._live_workers <= 0
+                    and self._pending_tokens <= 0
+                )
+            if finalize:
+                self._finalize(seq)
+
+    def _finalize(self, seq: int) -> None:
+        """所有 worker 与后台换 token 都结束后收尾（每批只执行一次）。"""
+        with self._lock:
+            if self._finalized or self._run_seq != seq:
+                return
+            self._finalized = True
+            self.end_time = time.time()
+            self.status = "error" if self.error_message else ("idle" if self._stop.is_set() else "done")
+            callback = self.on_run_complete
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                pass
+
+    def _queue_auto_import(self, account: dict, logp: str) -> None:
+        if not callable(self.on_account):
+            return
+        try:
+            self.on_account([account])
+        except Exception as exc:
+            self._log(f"{logp} 自动导入入队失败: {exc}", "warn")
+
+    def _start_token_exchange(self, account: dict, wid: int, seq: int) -> None:
+        with self._lock:
+            self._pending_tokens += 1
+        threading.Thread(
+            target=self._exchange_token,
+            args=(account, wid, seq),
+            daemon=True,
+            name=f"token-w{wid}",
+        ).start()
+
+    def _exchange_token(self, account: dict, wid: int, seq: int) -> None:
+        """SSO → access_token（device flow），成功后回写结果文件并交给导入服务。"""
+        logp = f"[W{wid}]"
+        email = str(account.get("email") or "")
+        try:
+            with self._token_lock:
+                # 复用节点：账号记录的注册节点 → 代理池租约 → 环境代理，不强制直连
+                proxy_spec, lease, proxy_label = _lease_token_proxy(account)
+                self._log(
+                    f"{logp} 换 token 开始：{email or '（无邮箱）'} · 节点 {proxy_label}",
+                    "info",
+                )
+                result = None
                 try:
-                    self.on_run_complete()
-                except Exception:
-                    pass
+                    result = sso_device_flow_to_token(
+                        str(account.get("sso") or ""),
+                        timeout=self.TOKEN_EXCHANGE_TIMEOUT,
+                        issue_token=True,
+                        proxy_spec=proxy_spec,
+                    )
+                finally:
+                    _release_token_proxy(
+                        lease,
+                        bool(
+                            isinstance(result, dict)
+                            and result.get("ok")
+                            and result.get("token")
+                        ),
+                        "token exchange",
+                    )
+                    account["token_proxy"] = proxy_label
+            token = result.get("token") if isinstance(result, dict) else None
+            if (
+                isinstance(result, dict)
+                and result.get("ok")
+                and isinstance(token, dict)
+                and is_auth_token_usable(token)
+            ):
+                account["auth_token"] = token
+                account["token_status"] = "ok"
+                account.pop("token_error", None)
+                with self._lock:
+                    self.token_ok_count += 1
+                self._persist_result(account)
+                self._log(f"{logp} 换 token 成功：{email} · 已缓存", "success")
+            else:
+                error = str(
+                    (result or {}).get("error") if isinstance(result, dict) else ""
+                ) or "OAuth 换票失败"
+                account["token_status"] = "failed"
+                account["token_error"] = error[:200]
+                with self._lock:
+                    self.token_fail_count += 1
+                self._persist_result(account)
+                self._log(f"{logp} 换 token 失败：{email} · {error}", "warn")
+        except Exception as exc:
+            account["token_status"] = "failed"
+            account["token_error"] = str(exc)[:200]
+            with self._lock:
+                self.token_fail_count += 1
+            self._log(f"{logp} 换 token 异常：{email} · {exc}", "error")
+        finally:
+            # 有 token 就直接复用，没有则由导入服务走 device flow 兜底
+            self._queue_auto_import(account, logp)
+            finalize = False
+            with self._lock:
+                self._pending_tokens -= 1
+                if (
+                    self._run_seq == seq
+                    and self._live_workers <= 0
+                    and self._pending_tokens <= 0
+                ):
+                    finalize = True
+            if finalize:
+                self._finalize(seq)
+
+    def _persist_result(self, account: dict) -> None:
+        """把 token / token_status 回写到 register_sso/*.json，便于后续直接复用。"""
+        rel_path = str(account.get("_file") or "")
+        if not rel_path:
+            return
+        path = BASE_DIR / rel_path
+        payload = {key: value for key, value in account.items() if not key.startswith("_")}
+        temp_path = path.with_name(f".{path.name}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            os.replace(temp_path, path)
+        except Exception as exc:
+            self._log(f"结果回写失败（{rel_path}）: {exc}", "warn")
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
 
 
 runner = RegisterRunner(log_fn=_route_engine_log)
@@ -2147,8 +2346,20 @@ def import_sso_to_upstream(
 
 
 def _exchange_import_token(sso: str, timeout: int) -> dict:
-
-    return sso_device_flow_to_token(sso, timeout=timeout, issue_token=True)
+    """导入兜底换票：同样复用节点（代理池租约），不强制直连。"""
+    proxy_spec, lease, proxy_label = _lease_token_proxy({"id": "import-token"})
+    result = None
+    try:
+        result = sso_device_flow_to_token(
+            sso, timeout=timeout, issue_token=True, proxy_spec=proxy_spec
+        )
+        return result
+    finally:
+        _release_token_proxy(
+            lease,
+            bool(isinstance(result, dict) and result.get("ok") and result.get("token")),
+            f"import token exchange · {proxy_label}",
+        )
 
 
 def _clear_completed_import_tokens(job: dict) -> None:
@@ -2164,6 +2375,9 @@ def _clear_completed_import_tokens(job: dict) -> None:
                 item["imported"] = True  # old status/API compatibility
             if oauth_targets.intersection((row.get("targets") or {}).keys()):
                 item["auth_token"] = None
+                # 内存里不再保留 access_token；token_status 标记已消费
+                if item.get("token_status") == "ok":
+                    item["token_status"] = "imported"
 
 
 IMPORT_CONFIG = ImportConfigStore(BASE_DIR, env_reader=read_env_file)
@@ -2917,6 +3131,9 @@ def start():
         return jsonify({"ok": False, "message": "并发进程数范围 1-8"}), 400
 
     cfg_env = read_env_file()
+    if "auto_exchange" in body:
+        # 注册成功后是否自动把 SSO 换成 access_token（默认开）
+        cfg_env["GROK_AUTO_EXCHANGE_TOKEN"] = "1" if body.get("auto_exchange") else "0"
     active_domains: list[str] = []
     if domain_pool.summary().get("total"):
         active_domains = domain_pool.active_domains()

@@ -4,6 +4,13 @@ services:
   grok-web:
     build:
       context: .
+      args:
+        # offline（默认，需 vendor/ 离线包）/ online（有网环境直接 fetch）
+        CAMOUFOX_INSTALL: ${CAMOUFOX_INSTALL:-offline}
+        CAMOUFOX_VERSION: ${CAMOUFOX_VERSION:-}
+        # 直接指定浏览器 zip / 模型 zip（镜像、反代、私有仓库均可），优先级最高
+        CAMOUFOX_ZIP_URL: ${CAMOUFOX_ZIP_URL:-}
+        CAMOUFOX_MODEL_URL: ${CAMOUFOX_MODEL_URL:-}
     image: ${GROK_IMAGE_REF:-cloudtemp-grokzhuce:local}
     init: true
     restart: unless-stopped
