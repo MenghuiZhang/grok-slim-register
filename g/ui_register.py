@@ -1058,13 +1058,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     if proxy_option:
         kwargs["proxy"] = proxy_option
         # 指纹与出口 IP 对齐：时区/经纬度跟随节点所在地，降低 Cloudflare 风控。
-        # 所有真实节点都启用；只有出口探测失败的节点才跳过（geoip 启动阶段
-        # 查不到 IP 会直接抛错，预探测先把它筛掉）。
-        geo = probe_proxy_geo(proxy_option)
-        if geo:
-            kwargs["geoip"] = True
+        # 预探测拿到出口 IP 后直接传给 Camoufox（geoip 参数支持传 IP），
+        # 时区/经纬度由本地 MaxMind 库离线查询，启动阶段零网络请求——
+        # 不依赖 Camoufox 自带的 IP 探测端点，也不受节点封 80 / 端点 403 影响。
+        geo_ip = ""
+        geo = None
+        try:
+            from camoufox.geolocation import geoip_allowed, get_geolocation
+
+            geoip_allowed()  # 缺 camoufox[geoip] 依赖时直接跳过
+            geo = probe_proxy_geo(proxy_option)
+            if geo and geo.get("ip"):
+                geo_ip = str(geo["ip"])
+                # 预检：mmdb 缺失/过期会在此触发下载，失败就不进浏览器阶段
+                get_geolocation(geo_ip)
+            else:
+                geo = None
+        except Exception as exc:
+            log(f"GeoIP 对齐预检失败（{exc}），跳过（时区/坐标可能与节点不匹配）")
+            geo_ip = ""
+            geo = None
+        if geo_ip and geo:
+            kwargs["geoip"] = geo_ip
             log(
-                f"出口 {geo.get('cc')}（{geo.get('ip')}）"
+                f"出口 {geo.get('cc')}（{geo_ip}）"
                 f" 时区 {geo.get('tz')}，启用 geoip 对齐"
             )
         else:
