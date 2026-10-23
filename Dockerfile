@@ -22,6 +22,12 @@ RUN python -m venv "$VIRTUAL_ENV" \
     && python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt
 
+# 给 Playwright Firefox 驱动打 null-guard 补丁：Turnstile 跨域 iframe 导航提交
+# 与 frame 销毁竞态会杀死 Node 驱动进程（上游 microsoft/playwright#13444，
+# 1.60.0 仍存在）。补丁失败（版本变化导致目标文本不匹配）会让构建失败。
+COPY docker/patch_playwright_driver.py /tmp/patch_playwright_driver.py
+RUN python /tmp/patch_playwright_driver.py
+
 # Camoufox 安装方式（build-arg），优先级：指定 URL > online > offline
 #   CAMOUFOX_ZIP_URL    — 直接下载浏览器 zip（官方 release / 自建镜像 / ghproxy 等反代），
 #                         路径最可控、不查版本、不同步仓库
