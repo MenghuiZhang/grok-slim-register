@@ -50,6 +50,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write  # 清空旧缓存步骤需要（删除 Actions cache 的 API 权限）
     steps:
       - name: Checkout
         uses: actions/checkout@v4
