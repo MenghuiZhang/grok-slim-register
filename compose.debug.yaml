@@ -1,0 +1,13 @@
+# Usage:
+#   docker build -f Dockerfile.debug -t cloudtemp-grokzhuce:debug .
+#   docker compose -f compose.yaml -f compose.debug.yaml up -d --no-build
+# Viewer: http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale
+services:
+  grok-web:
+    image: cloudtemp-grokzhuce:debug
+    ports:
+      - "127.0.0.1:3333:3333"
+      - "127.0.0.1:6080:6080"
+    environment:
+      DISPLAY: ":99"
+      GROK_CAMOUFOX_HEADLESS: "0"

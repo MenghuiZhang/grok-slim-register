@@ -1,0 +1,24 @@
+# Live browser debugging image: inherits the validated Camoufox runtime and adds
+# Xvfb + x11vnc so the registration browser can be watched over VNC.
+FROM cloudtemp-grokzhuce:local
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        xvfb \
+        x11vnc \
+        openbox \
+        novnc \
+        websockify \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+COPY debug/start-debug-browser.sh /usr/local/bin/start-debug-browser.sh
+RUN chmod +x /usr/local/bin/start-debug-browser.sh
+
+ENV RUNNING_IN_DOCKER=1 \
+    DISPLAY=:99 \
+    GROK_CAMOUFOX_HEADLESS=0
+
+EXPOSE 3333 5900 6080
+CMD ["/usr/local/bin/start-debug-browser.sh"]

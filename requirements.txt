@@ -1,0 +1,7 @@
+python-dotenv
+requests
+curl_cffi
+beautifulsoup4
+filelock>=3.13
+flask
+camoufox[geoip]

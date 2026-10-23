@@ -1,0 +1,39 @@
+name: ${COMPOSE_PROJECT_NAME:-grok-local}
+
+services:
+  grok-web:
+    build:
+      context: .
+    image: ${GROK_IMAGE_REF:-cloudtemp-grokzhuce:local}
+    init: true
+    restart: unless-stopped
+    shm_size: "2gb"
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    stop_grace_period: 30s
+    ports:
+      - "${GROK_BIND_ADDRESS:-127.0.0.1}:${GROK_HOST_PORT:-3333}:3333"
+    networks:
+      - private
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
+        bind:
+          create_host_path: false
+      - ./keys:/app/keys
+      - ./logs:/app/logs
+      - ./register_sso:/app/register_sso
+      - ./converted_auth:/app/converted_auth
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  private:
+    driver: bridge

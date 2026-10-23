@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grok 注册控制台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: {
+              50: '#fbfaf7',
+              100: '#f4f1ea',
+              200: '#e8e2d6',
+              300: '#d5cdb8',
+            },
+            ink: {
+              700: '#3f3a33',
+              800: '#2a261f',
+              900: '#1a1712',
+            },
+            brand: {
+              50: '#eff8ff',
+              100: '#dbeefe',
+              500: '#2f80ed',
+              600: '#1f6fd6',
+              700: '#1857ab',
+            },
+            leaf: {
+              500: '#1f9d63',
+              600: '#178451',
+            },
+            sun: {
+              500: '#d97706',
+            },
+            rose: {
+              500: '#e11d48',
+            }
+          },
+          fontFamily: {
+            display: ['"Fraunces"', 'Georgia', 'serif'],
+            sans: ['"Manrope"', 'system-ui', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+          },
+          boxShadow: {
+            soft: '0 10px 30px rgba(42, 38, 31, 0.06)',
+            card: '0 1px 0 rgba(255,255,255,0.8) inset, 0 12px 32px rgba(42, 38, 31, 0.07)',
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      background:
+        radial-gradient(900px 420px at 0% 0%, rgba(47, 128, 237, 0.10), transparent 55%),
+        radial-gradient(700px 380px at 100% 10%, rgba(31, 157, 99, 0.08), transparent 50%),
+        linear-gradient(180deg, #fbfaf7 0%, #f3f0e8 100%);
+      color: #1a1712;
+    }
+    .panel {
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(42, 38, 31, 0.08);
+      box-shadow: 0 12px 32px rgba(42, 38, 31, 0.06);
+      backdrop-filter: blur(10px);
+    }
+    .field {
+      width: 100%;
+      border-radius: 0.9rem;
+      border: 1.5px solid #ddd5c6;
+      background: #fff;
+      padding: 0.7rem 0.9rem;
+      font-size: 0.9rem;
+      color: #1a1712;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+    .field:hover { border-color: #c9bea8; }
+    .field:focus {
+      border-color: #2f80ed;
+      box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
+      background: #fff;
+    }
+    .field:disabled {
+      background: #f4f1ea;
+      color: #8a8376;
+      cursor: not-allowed;
+    }
+    .field-label {
+      display: block;
+      margin-bottom: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #6b6458;
+    }
+    /* custom select */
+    .c-select { position: relative; }
+    .c-select-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      border-radius: 0.9rem;
+      border: 1.5px solid #ddd5c6;
+      background: #fff;
+      padding: 0.7rem 0.9rem;
+      font-size: 0.9rem;
+      color: #1a1712;
+      text-align: left;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .c-select-btn:hover { border-color: #c9bea8; }
+    .c-select-btn.open, .c-select-btn:focus {
+      border-color: #2f80ed;
+      box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
+      outline: none;
+    }
+    .c-select-btn:disabled {
+      background: #f4f1ea;
+      color: #8a8376;
+      cursor: not-allowed;
+    }
+    .c-select-menu {
+      position: absolute;
+      z-index: 40;
+      left: 0; right: 0;
+      top: calc(100% + 6px);
+      border-radius: 0.9rem;
+      border: 1px solid #e5ddcf;
+      background: #fff;
+      box-shadow: 0 16px 40px rgba(42, 38, 31, 0.12);
+      padding: 0.35rem;
+      display: none;
+      max-height: 14rem;
+      overflow-y: auto;
+    }
+    .c-select-menu.open { display: block; }
+    .c-select-option {
+      width: 100%;
+      text-align: left;
+      border-radius: 0.65rem;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.875rem;
+      color: #2a261f;
+      background: transparent;
+    }
+    .c-select-option:hover { background: #eff8ff; color: #1857ab; }
+    .c-select-option.active {
+      background: #dbeefe;
+      color: #1857ab;
+      font-weight: 600;
+    }
+    .chev {
+      width: 1rem; height: 1rem;
+      color: #8a8376;
+      transition: transform .15s;
+      flex-shrink: 0;
+    }
+    .c-select-btn.open .chev { transform: rotate(180deg); color: #2f80ed; }
+
+    .btn {
+      border-radius: 0.9rem;
+      padding: 0.7rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 700;
+      transition: transform .12s, filter .12s, box-shadow .12s, background .12s;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+    .btn-primary {
+      background: linear-gradient(135deg, #2f80ed, #1f9d63);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(47, 128, 237, 0.2);
+    }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.04); transform: translateY(-1px); }
+    .btn-danger {
+      background: linear-gradient(135deg, #e11d48, #f43f5e);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(225, 29, 72, 0.18);
+    }
+    .btn-danger:hover:not(:disabled) { filter: brightness(1.04); transform: translateY(-1px); }
+    .btn-ghost {
+      background: #fff;
+      border: 1.5px solid #ddd5c6;
+      color: #2a261f;
+    }
+    .btn-ghost:hover:not(:disabled) { border-color: #2f80ed; color: #1857ab; background: #f8fbff; }
+
+    .progress-bar {
+      background: linear-gradient(90deg, #2f80ed, #1f9d63 70%);
+      transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .log-line { animation: fadeSlide .22s ease-out; }
+    @keyframes fadeSlide {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(.85); }
+    }
+    .pulse-live { animation: pulse-dot 1.4s ease-in-out infinite; }
+    #logBox, #postLogBox, #successList, #keysList { scrollbar-width: thin; scrollbar-color: #d5cdb8 transparent; }
+    /* 日志双栏：不靠 Tailwind xl 断点（很多窗口 <1280 时 col-span 不生效，宽死活不变） */
+    .log-split {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    @media (min-width: 1024px) {
+      /* 主流程 : 右侧 ≈ 1.85 : 1（主区明显更宽） */
+      .log-split {
+        grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
+      }
+    }
+    #logBox, #postLogBox { width: 100%; min-width: 0; }
+    /* 配置页：平铺分组，面板内滚动 */
+    #tab-config {
+      max-height: min(72vh, 42rem);
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #d5cdb8 transparent;
+    }
+    #tab-config .cfg-block {
+      border: 1px solid rgba(26, 23, 18, 0.08);
+      border-radius: 0.9rem;
+      background: #fff;
+      padding: 0.85rem 0.95rem 0.95rem;
+      display: grid;
+      gap: 0.65rem;
+    }
+    #tab-config .cfg-title {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      color: #1a1712;
+      margin: 0;
+      padding-bottom: 0.15rem;
+      border-bottom: 1px solid rgba(26, 23, 18, 0.06);
+    }
+    #tab-config .field-label { margin-bottom: 0.2rem; }
+    #tab-config .field { padding: 0.55rem 0.7rem; }
+    #tab-config .hint {
+      margin-top: 0.2rem;
+      font-size: 10px;
+      line-height: 1.35;
+      color: rgba(63, 58, 51, 0.45);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .secret-wrap { position: relative; }
+    .secret-wrap .field { padding-right: 2.6rem; }
+    .secret-wrap .toggle-eye {
+      position: absolute;
+      right: 0.55rem;
+      top: 50%;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #8a8376;
+      cursor: pointer;
+      border-radius: 0.4rem;
+    }
+    .secret-wrap .toggle-eye:hover { color: #1857ab; background: rgba(24, 87, 171, 0.06); }
+    .secret-wrap .toggle-eye svg { width: 1rem; height: 1rem; pointer-events: none; }
+    .tab-btn.active {
+      background: #fff;
+      color: #1857ab;
+      box-shadow: 0 1px 3px rgba(42,38,31,.08);
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body class="h-full font-sans antialiased">
+  <div class="min-h-full">
+    <!-- Header -->
+    <header class="sticky top-0 z-30 border-b border-ink-900/5 bg-paper-50/90 backdrop-blur-md">
+      <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="h-11 w-11 rounded-2xl bg-gradient-to-br from-brand-500 to-leaf-500 text-white grid place-items-center shadow-soft font-display text-lg font-bold">G</div>
+          <div>
+            <h1 class="font-display text-2xl font-bold tracking-tight text-ink-900">Grok 注册控制台</h1>
+            <p class="text-xs text-ink-700/60 font-mono">配置 · 启动 · 实时日志 · Key 下载</p>
+          </div>
+        </div>
+        <div id="statusBadge" class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-mono border border-ink-900/10 bg-white shadow-sm">
+          <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-400"></span>
+          <span id="statusText" class="text-ink-700">IDLE</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-[1680px] mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <!-- Stats -->
+      <section class="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+        <article class="panel rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已创邮箱</p>
+          <p id="statSuccess" class="mt-1 font-display text-3xl font-bold text-leaf-600">0</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">目标 <span id="statTarget">0</span></p>
+        </article>
+        <article class="panel rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">过程失败</p>
+          <p id="statFail" class="mt-1 font-display text-3xl font-bold text-rose-500">0</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">废号尝试 · 非目标</p>
+        </article>
+        <article class="panel rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">平均速度</p>
+          <p id="statAvg" class="mt-1 font-display text-3xl font-bold text-brand-600">—</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">秒 / 邮箱</p>
+        </article>
+        <article class="panel rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已用时间</p>
+          <p id="statElapsed" class="mt-1 font-display text-3xl font-bold text-sun-500">0s</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">并行 <span id="statWorkers">3</span> 进程</p>
+        </article>
+      </section>
+
+      <!-- Progress -->
+      <section class="panel rounded-2xl p-4 sm:p-5">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-display font-semibold text-ink-900">进度</h2>
+          <span id="progressLabel" class="font-mono text-sm font-semibold text-brand-600">0%</span>
+        </div>
+        <div class="h-3 rounded-full bg-paper-200 overflow-hidden">
+          <div id="progressBar" class="progress-bar h-full w-0 rounded-full"></div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-mono text-ink-700/60">
+          <span>成功 <span id="statEmailCreateInline" class="text-leaf-600">0</span> / 目标 <span id="statTargetInline" class="text-ink-800">0</span></span>
+          <span>输出：<span id="outputFile" class="text-ink-800">—</span></span>
+        </div>
+        <div id="pipelineBox" class="mt-3 rounded-xl bg-paper-100 border border-ink-900/5 px-3 py-2.5 text-[11px] font-mono text-ink-700/70 leading-relaxed">
+          <div class="text-[10px] uppercase tracking-[0.14em] text-ink-700/40 font-semibold mb-1">注册流水线</div>
+          <div id="pipelineSteps" class="text-ink-800">空闲 · UI 注册：临时邮箱 → 验证码 → 资料页 → Turnstile 点击 → SSO</div>
+        </div>
+      </section>
+
+      <!-- 左控制 / 右日志：大屏日志区更宽，外层由 max-w-[1680px] 控宽而非 7xl -->
+      <div class="grid lg:grid-cols-12 gap-5 min-w-0">
+        <!-- Left column -->
+        <section class="lg:col-span-4 space-y-4 min-w-0">
+          <!-- Tabs: run / config -->
+          <div class="panel rounded-2xl overflow-hidden">
+            <div class="flex gap-1 p-1.5 bg-paper-100 border-b border-ink-900/5">
+              <button type="button" data-tab="run" class="tab-btn active flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">运行</button>
+              <button type="button" data-tab="config" class="tab-btn flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">配置</button>
+              <button type="button" data-tab="keys" class="tab-btn flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">Keys</button>
+            </div>
+
+            <!-- RUN PANEL -->
+            <div id="tab-run" class="p-5 space-y-4">
+              <h2 class="font-display font-semibold text-ink-900">启动参数</h2>
+              <form id="startForm" class="space-y-4">
+                <div>
+                  <label class="field-label" for="workers">并发进程</label>
+                  <div class="c-select" data-select="workers">
+                    <button type="button" class="c-select-btn" id="workersBtn" aria-haspopup="listbox">
+                      <span class="value">3 进程</span>
+                      <svg class="chev" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                    </button>
+                    <div class="c-select-menu" role="listbox"></div>
+                    <input type="hidden" id="workers" name="workers" value="3" />
+                  </div>
+                  <p class="mt-1.5 text-[11px] text-ink-700/50">多进程并行注册，每进程独立浏览器与指纹</p>
+                </div>
+                <div>
+                  <label class="field-label" for="target">创建邮箱目标</label>
+                  <div class="c-select" data-select="target">
+                    <button type="button" class="c-select-btn" id="targetBtn" aria-haspopup="listbox">
+                      <span class="value">100 个</span>
+                      <svg class="chev" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                    </button>
+                    <div class="c-select-menu" role="listbox"></div>
+                    <input type="hidden" id="target" name="target" value="100" />
+                  </div>
+                  <p class="mt-1.5 text-[11px] text-ink-700/50">也可在下方自定义数量</p>
+                  <input id="targetCustom" type="number" min="1" max="100000" placeholder="自定义数量，例如 25"
+                         class="field mt-2" />
+                </div>
+                <div class="grid grid-cols-2 gap-3 pt-1">
+                  <button id="btnStart" type="submit" class="btn btn-primary">启动注册</button>
+                  <button id="btnStop" type="button" class="btn btn-danger" disabled>停止</button>
+                </div>
+              </form>
+              <p id="formMessage" class="text-xs font-mono min-h-[1.1rem] text-ink-700/50"></p>
+
+              <div class="rounded-xl bg-paper-100 border border-ink-900/5 p-3 text-xs text-ink-700/70 space-y-1.5">
+                <div class="flex justify-between gap-2"><span>邮箱服务</span><span id="envWorker" class="font-mono text-ink-800 truncate max-w-[58%] text-right">—</span></div>
+                <div class="flex justify-between gap-2"><span>邮箱状态</span><span id="envMailDomain" class="font-mono text-ink-800">—</span></div>
+                <div class="flex justify-between gap-2"><span>邮箱配置</span><a href="/email-settings" id="envToken" class="font-mono text-brand-600">打开</a></div>
+                <div class="flex justify-between gap-2"><span>验证码</span><span id="envYes" class="font-mono text-ink-800">—</span></div>
+                <div class="flex justify-between gap-2"><span>注册代理</span><a href="/proxy-settings" id="envProxy" class="font-mono text-brand-600 truncate max-w-[58%] text-right">打开</a></div>
+                <div class="flex justify-between gap-2"><span>导入服务</span><a href="/import-services" class="font-mono text-brand-600">打开</a></div>
+              </div>
+
+            </div>
+
+            <!-- CONFIG PANEL：平铺分组 + 内部滚动 -->
+            <div id="tab-config" class="p-4 space-y-3 hidden">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <h2 class="font-display font-semibold text-ink-900 text-sm">环境配置</h2>
+                  <p class="text-[10px] text-ink-700/45 font-mono">写入 .env</p>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button type="button" id="btnReloadConfig" class="btn btn-ghost text-[11px] px-2.5 py-1">重载</button>
+                  <button type="submit" form="configForm" id="btnSaveConfig" class="btn btn-primary text-[11px] px-3 py-1.5">保存</button>
+                </div>
+              </div>
+              <p id="configMessage" class="text-[11px] font-mono min-h-[1rem] text-ink-700/50 -mt-1"></p>
+
+              <form id="configForm" class="space-y-2.5">
+                <div class="cfg-block flex items-center justify-between gap-3">
+                  <div>
+                    <h3 class="cfg-title">邮箱服务</h3>
+                    <p class="hint">邮箱凭据、服务切换、域名池与连接测试已迁移到独立页面。</p>
+                  </div>
+                  <a href="/email-settings" class="btn btn-primary text-[11px] px-3 py-1.5 shrink-0">打开邮箱配置</a>
+                </div>
+                <div class="hidden" aria-hidden="true">
+                <!-- 1. 邮箱 -->
+                <div class="cfg-block">
+                  <h3 class="cfg-title">邮箱 freemail</h3>
+                  <div>
+                    <label class="field-label" for="cfgWorker">WORKER_DOMAIN <span class="text-rose-500">*</span></label>
+                    <input id="cfgWorker" class="field font-mono text-sm" placeholder="freemail 域名（无 https://）" autocomplete="off" />
+                  </div>
+                  <div>
+                    <label class="field-label" for="cfgToken">FREEMAIL_TOKEN <span class="text-rose-500">*</span></label>
+                    <div class="secret-wrap">
+                      <input id="cfgToken" type="password" class="field font-mono text-sm" placeholder="站点密码 / JWT" autocomplete="off" spellcheck="false" />
+                      <button type="button" class="toggle-eye" data-target="cfgToken" aria-label="显示/隐藏" title="显示/隐藏">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="field-label" for="cfgAdminKey">FREEMAIL_ADMIN_KEY</label>
+                    <div class="secret-wrap">
+                      <input id="cfgAdminKey" type="password" class="field font-mono text-sm" placeholder="ADMIN_PASSWORDS 中的密码" autocomplete="off" spellcheck="false" />
+                      <button type="button" class="toggle-eye" data-target="cfgAdminKey" aria-label="显示/隐藏" title="显示/隐藏">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                    </div>
+                    <p class="hint">填写后改用 /admin/new_address，不受匿名建邮开关限制</p>
+                  </div>
+                  <div>
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                      <label class="field-label" style="margin-bottom:0" for="cfgMailDomain">邮箱后缀</label>
+                      <button type="button" id="btnFetchDomains" class="btn btn-ghost text-[11px] px-2 py-0.5">拉取</button>
+                    </div>
+                    <div class="c-select" data-select="cfgMailDomain">
+                      <button type="button" class="c-select-btn" id="cfgMailDomainBtn">
+                        <span class="value">自动（服务端默认）</span>
+                        <svg class="chev" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                      </button>
+                      <div class="c-select-menu" role="listbox"></div>
+                      <input type="hidden" id="cfgMailDomain" value="auto" />
+                    </div>
+                    <p id="mailDomainHint" class="hint">点「拉取」从 freemail 取可用后缀</p>
+                    <label class="mt-2 flex items-start gap-2 text-[11px] text-ink-700/75 cursor-pointer">
+                      <input id="cfgRandomSubdomain" type="checkbox" class="mt-0.5 rounded border-paper-300 text-brand-500 focus:ring-brand-500/30" />
+                      <span>
+                        <span class="font-semibold text-ink-800">启用随机子域名</span>
+                        <span class="block" id="randomSubdomainHint">需选择 Worker 的 RANDOM_SUBDOMAIN_DOMAINS 基础域名</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Outlook/Hotmail 加号地址 -->
+                <div class="cfg-block">
+                  <h3 class="cfg-title">邮箱 Outlook/Hotmail</h3>
+                  <div>
+                    <label class="field-label">邮箱类型</label>
+                    <div class="c-select" data-select="emailType">
+                      <button type="button" class="c-select-btn" id="cfgEmailTypeBtn">
+                        <span class="value">freemail</span>
+                        <svg class="chev" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                      </button>
+                      <div class="c-select-menu" role="listbox"></div>
+                      <input type="hidden" id="cfgEmailType" value="freemail" />
+                    </div>
+                  </div>
+
+                  <div id="outlookConfig" class="hidden">
+                    <div>
+                      <label class="field-label" for="cfgAccountList">账号列表（每行一个）</label>
+                      <textarea id="cfgAccountList" class="field font-mono text-sm" placeholder="test@outlook.com:应用密码&#10;test@outlook.com----应用密码----refresh_token----client_id" rows="6"></textarea>
+                      <p class="hint">生成 name+随机标签@outlook.com；有 refresh_token 时优先 OAuth2</p>
+                    </div>
+                    <div>
+                      <label class="field-label" for="cfgAliasLimit">加号地址上限</label>
+                      <input id="cfgAliasLimit" type="number" min="1" max="999" value="5" class="field font-mono text-sm" />
+                      <p class="hint">每个主账号在一次运行中分配的地址上限</p>
+                    </div>
+                  </div>
+                </div>
+                </div>
+
+                <!-- 3. Storage protection -->
+                <div class="cfg-block">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 class="cfg-title">日志与磁盘保护</h3>
+                      <p id="storageUsage" class="hint">正在读取当前占用…</p>
+                    </div>
+                    <button type="button" id="btnClearCaptures" class="btn btn-danger text-[11px] px-2.5 py-1 shrink-0">清理抓包</button>
+                  </div>
+                  <details class="rounded-xl border border-ink-900/5 bg-paper-50/70 px-3 py-2">
+                    <summary class="cursor-pointer text-[11px] font-semibold text-ink-700/70 select-none">高级限制</summary>
+                    <div class="grid grid-cols-2 gap-2 pt-2">
+                      <div>
+                        <label class="field-label" for="cfgLogMaxMb">单份日志上限（MB）</label>
+                        <input id="cfgLogMaxMb" class="field font-mono text-sm" type="number" min="1" max="1024" value="10" />
+                      </div>
+                      <div>
+                        <label class="field-label" for="cfgLogFileCount">保留文件数（含当前）</label>
+                        <input id="cfgLogFileCount" class="field font-mono text-sm" type="number" min="1" max="20" value="3" />
+                      </div>
+                    </div>
+                  </details>
+                  <p id="storageMessage" class="text-[11px] font-mono min-h-[1rem] text-ink-700/50"></p>
+                </div>
+
+                <!-- 4. UI -->
+                <div class="cfg-block">
+                  <h3 class="cfg-title">控制台监听</h3>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="field-label" for="cfgUiHost">UI_HOST</label>
+                      <input id="cfgUiHost" class="field font-mono text-sm" placeholder="127.0.0.1" />
+                    </div>
+                    <div>
+                      <label class="field-label" for="cfgUiPort">UI_PORT</label>
+                      <input id="cfgUiPort" class="field font-mono text-sm" placeholder="3333" />
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            <!-- KEYS PANEL -->
+            <div id="tab-keys" class="p-5 space-y-3 hidden">
+              <div class="flex items-center justify-between">
+                <h2 class="font-display font-semibold text-ink-900">Key 文件</h2>
+                <button id="btnRefreshKeys" type="button" class="btn btn-ghost text-xs px-3 py-1.5">刷新</button>
+              </div>
+              <ul id="keysList" class="space-y-2 max-h-80 overflow-y-auto text-xs font-mono">
+                <li class="text-ink-700/50">暂无文件</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: logs (主流程 | risk/token/NSFW) -->
+        <section class="lg:col-span-8 space-y-4 min-w-0">
+          <div class="panel rounded-2xl p-5">
+            <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
+              <h2 class="font-display font-semibold text-ink-900">实时日志</h2>
+              <div class="flex items-center gap-3">
+                <span id="logConnBadge" class="text-[11px] font-mono text-ink-700/40">连接中…</span>
+                <label class="inline-flex items-center gap-1.5 text-xs text-ink-700/60 font-mono cursor-pointer select-none">
+                  <input id="autoScroll" type="checkbox" checked class="rounded border-paper-300 text-brand-500 focus:ring-brand-500/30" />
+                  自动滚动
+                </label>
+                <button id="btnClearLogs" type="button" class="text-xs font-mono text-ink-700/55 hover:text-sun-500">清空</button>
+              </div>
+            </div>
+            <div class="log-split">
+              <!-- 主流程（约 65% 宽，CSS fr 写死，不依赖 xl:col-span） -->
+              <div class="min-w-0">
+                <div class="flex items-center justify-between mb-1.5 px-0.5">
+                  <span class="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink-700/45">主流程</span>
+                  <span class="text-[10px] font-mono text-ink-700/35">建邮 · camoufox · signup · SSO</span>
+                </div>
+                <div id="logBox" class="h-[28rem] overflow-y-auto rounded-xl bg-paper-50 border border-ink-900/5 p-3 font-mono text-[12px] leading-relaxed space-y-1">
+                  <div class="text-ink-700/40">等待主流程日志...</div>
+                </div>
+              </div>
+              <!-- Risk / Token / NSFW（约 35%） -->
+              <div class="min-w-0">
+                <div class="flex items-center justify-between mb-1.5 px-0.5">
+                  <span class="text-[10px] uppercase tracking-[0.14em] font-semibold text-brand-600/80">Risk · Token · NSFW</span>
+                  <span class="text-[10px] font-mono text-ink-700/35">异步后置</span>
+                </div>
+                <div id="postLogBox" class="h-[28rem] overflow-y-auto rounded-xl bg-brand-50/40 border border-brand-500/10 p-3 font-mono text-[12px] leading-relaxed space-y-1">
+                  <div class="text-ink-700/40">risk · 换 token · 协议/NSFW 输出在这里</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel rounded-2xl p-5">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h2 class="font-display font-semibold text-ink-900">最近成功</h2>
+                <p class="text-[11px] text-ink-700/45 mt-0.5 font-mono">导入状态请前往独立导入中心</p>
+              </div>
+              <a href="/import-services" class="btn btn-primary text-xs px-3 py-1.5 shrink-0">打开导入中心</a>
+            </div>
+            <div id="successList" class="max-h-64 overflow-y-auto space-y-2 font-mono text-xs">
+              <p class="text-ink-700/45">成功账号会显示在这里</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="max-w-[1680px] mx-auto px-4 sm:px-6 pb-8 pt-1 text-center text-[11px] font-mono text-ink-700/40">
+      仅本机访问 · 也可使用 <span class="text-ink-700/60">python grok.py</span> 命令行
+    </footer>
+  </div>
+
+  <script>
+    const state = {
+      afterId: 0,
+      postAfterId: 0,
+      running: false,
+      lastStatus: null,
+      pollInFlight: false,
+      seenLogIds: new Set(),
+      seenPostLogIds: new Set(),
+      starting: false,
+      pollFailCount: 0,
+      serverConnected: false,
+      pollTimer: null,
+      lastPipelineHint: '',
+    };
+
+    // 从日志推断当前 CLEAN 阶段（前台 risk 后整号可观测）
+    function inferPipelineFromLogs(entries) {
+      if (!entries || !entries.length) return null;
+      const last = entries[entries.length - 1];
+      const msg = String((last && last.message) || '');
+      const rules = [
+        [/NSFW\/unhinged 已开|NSFW.*已开/i, 'NSFW ✓ · unhinged'],
+        [/协议\/NSFW 异常|NSFW失败|协议失败|unhinged失败/i, '协议/NSFW ✗'],
+        [/换 token 成功/i, '异步换 token ✓ · 已缓存'],
+        [/换 token 失败|换 token 异常|换 token 返回体不可用|approve 成功但无 token/i, '异步换 token ✗ · 导入兜底'],
+        [/换 token 开始/i, '异步换 token 中…'],
+        [/PENDING_BFS/i, 'Risk CLEAN → PENDING_BFS → OAuth/BFS'],
+        [/BFS_MARKED|BFS_UNKNOWN/i, 'BFS · MARKED · 禁用 CPA'],
+        [/UNCHECKED 已计成功/i, 'UNCHECKED · OAuth/BFS 已跳过'],
+        [/Risk 探测已跳过/i, 'Risk 已跳过 → UNCHECKED'],
+        [/risk CLEAN/i, 'risk · CLEAN ✓ → 计成功 → 异步 token/NSFW'],
+        [/risk MARKED|绕过成功列表/i, 'risk · MARKED · 已绕过（不计成功/不导入）'],
+        [/risk 探测开始/i, 'risk 探测中…'],
+        [/SSO 到手/i, 'SSO 到手 → risk 门禁'],
+        [/注册成功:/i, 'CLEAN 已计成功'],
+        [/signup /i, 'signup'],
+        [/Turnstile/i, 'Turnstile'],
+        [/验码/i, '验码'],
+        [/验证码 /i, '收验证码'],
+        [/发码/i, '发码'],
+        [/castle ok/i, 'castle mint'],
+        [/camoufox 就绪|camoufox 池复用|启动 camoufox/i, 'camoufox'],
+        [/启动 \d+ 个线程/i, '线程启动'],
+      ];
+      for (const [re, label] of rules) {
+        if (re.test(msg)) {
+          const emailM = msg.match(/([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i);
+          const email = emailM ? emailM[1] : '';
+          return email ? `${label} · ${email}` : label;
+        }
+      }
+      // 截断过长原文当 hint
+      const short = msg.length > 90 ? msg.slice(0, 90) + '…' : msg;
+      return short || null;
+    }
+
+    function setPipelineHint(text) {
+      const el = $('pipelineSteps');
+      if (!el || !text) return;
+      if (text === state.lastPipelineHint) return;
+      state.lastPipelineHint = text;
+      el.textContent = text;
+    }
+
+    function schedulePoll() {
+      if (state.pollTimer) clearInterval(state.pollTimer);
+      // 运行中 500ms 刷状态；空闲 1.5s
+      const ms = state.running ? 500 : 1500;
+      state.pollTimer = setInterval(pollOnce, ms);
+    }
+
+    function setLogConnBadge(ok, text) {
+      const el = $('logConnBadge');
+      if (!el) return;
+      el.textContent = text || (ok ? '已连接' : '断线');
+      el.className = ok
+        ? 'text-[11px] font-mono text-leaf-600'
+        : 'text-[11px] font-mono text-rose-500';
+    }
+
+    const $ = (id) => document.getElementById(id);
+
+    const levelClass = {
+      info: 'text-ink-800',
+      success: 'text-leaf-600',
+      warn: 'text-sun-500',
+      error: 'text-rose-500',
+    };
+
+    const statusStyle = {
+      idle: { dot: 'bg-slate-400', text: 'IDLE' },
+      initializing: { dot: 'bg-sun-500 pulse-live', text: 'INIT' },
+      running: { dot: 'bg-leaf-500 pulse-live', text: 'RUNNING' },
+      stopping: { dot: 'bg-sun-500 pulse-live', text: 'STOPPING' },
+      done: { dot: 'bg-brand-500', text: 'DONE' },
+      resource_exhausted: { dot: 'bg-rose-500', text: 'NEEDS ACTION' },
+      error: { dot: 'bg-rose-500', text: 'ERROR' },
+    };
+
+    /* ---------- Custom Select ---------- */
+    function initSelect(root, options, initialValue, onChange) {
+      const btn = root.querySelector('.c-select-btn');
+      const menu = root.querySelector('.c-select-menu');
+      const hidden = root.querySelector('input[type="hidden"]');
+      const valueEl = btn.querySelector('.value');
+      let opts = options.slice();
+
+      function render(active) {
+        menu.innerHTML = opts.map(opt => {
+          const activeCls = String(opt.value) === String(active) ? 'active' : '';
+          return `<button type="button" role="option" class="c-select-option ${activeCls}" data-value="${escapeHtml(String(opt.value))}">${escapeHtml(opt.label)}</button>`;
+        }).join('');
+      }
+
+      function setValue(val, silent = false) {
+        let found = opts.find(o => String(o.value) === String(val));
+        if (!found && val != null && val !== '') {
+          // 保留已选但未在列表中的值（例如尚未拉取域名）
+          found = { value: val, label: String(val) };
+          opts = [found, ...opts.filter(o => String(o.value) !== String(val))];
+        }
+        if (!found) found = opts[0];
+        hidden.value = found.value;
+        valueEl.textContent = found.label;
+        render(found.value);
+        if (!silent && onChange) onChange(found.value);
+      }
+
+      function setOptions(next, keepValue = true) {
+        const cur = keepValue ? hidden.value : (next[0] && next[0].value);
+        opts = next.slice();
+        setValue(cur, true);
+      }
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const open = !menu.classList.contains('open');
+        document.querySelectorAll('.c-select-menu.open').forEach(m => m.classList.remove('open'));
+        document.querySelectorAll('.c-select-btn.open').forEach(b => b.classList.remove('open'));
+        if (open) {
+          menu.classList.add('open');
+          btn.classList.add('open');
+        }
+      });
+
+      menu.addEventListener('click', (e) => {
+        const opt = e.target.closest('.c-select-option');
+        if (!opt) return;
+        setValue(opt.dataset.value);
+        menu.classList.remove('open');
+        btn.classList.remove('open');
+      });
+
+      setValue(initialValue, true);
+      root._setValue = setValue;
+      root._setOptions = setOptions;
+      root._setDisabled = (d) => { btn.disabled = !!d; };
+      return root;
+    }
+
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.c-select-menu.open').forEach(m => m.classList.remove('open'));
+      document.querySelectorAll('.c-select-btn.open').forEach(b => b.classList.remove('open'));
+    });
+
+    const workerSelect = initSelect(
+      document.querySelector('[data-select="workers"]'),
+      [1, 2, 3, 4, 5, 6, 7, 8].map(n => ({ value: n, label: `${n} 进程` })),
+      3
+    );
+
+    const targetSelect = initSelect(
+      document.querySelector('[data-select="target"]'),
+      [1,5,10,20,50,100,200,500,1000].map(n => ({ value: n, label: `${n} 个` })),
+      100,
+      (val) => { $('targetCustom').value = ''; }
+    );
+
+    const emailTypeSelect = initSelect(
+      document.querySelector('[data-select="emailType"]'),
+      [
+        { value: 'freemail', label: 'freemail (cloudflare_temp_email)' },
+        { value: 'outlook-hotmail', label: 'Outlook / Hotmail（加号地址）' },
+      ],
+      'freemail',
+      (val) => {
+        const isOutlook = val === 'outlook-hotmail' || val === 'outlook';
+        $('outlookConfig').classList.toggle('hidden', !isOutlook);
+      }
+    );
+
+    const AUTO_DOMAIN_OPT = { value: 'auto', label: '自动（服务端默认）' };
+    let randomSubdomainDomains = new Set();
+    const mailDomainSelect = initSelect(
+      document.querySelector('[data-select="cfgMailDomain"]'),
+      [AUTO_DOMAIN_OPT],
+      'auto',
+      () => updateRandomSubdomainHint()
+    );
+
+    function buildDomainOptions(domains, defaults, randomDomains = []) {
+      const opts = [AUTO_DOMAIN_OPT];
+      const defSet = new Set((defaults || []).map(String));
+      const randomSet = new Set((randomDomains || []).map(String));
+      for (const d of domains || []) {
+        const v = String(d).trim();
+        if (!v || v === 'auto') continue;
+        const tags = [];
+        if (defSet.has(v)) tags.push('默认');
+        if (randomSet.has(v)) tags.push('可随机子域');
+        opts.push({
+          value: v,
+          label: tags.length ? `${v}（${tags.join(' / ')}）` : v
+        });
+      }
+      return opts;
+    }
+
+    function updateRandomSubdomainHint() {
+      const hint = $('randomSubdomainHint');
+      if (!hint) return;
+      const domain = ($('cfgMailDomain').value || 'auto').trim();
+      if (domain === 'auto') {
+        hint.textContent = '启用后必须选择 RANDOM_SUBDOMAIN_DOMAINS 中的基础域名';
+        hint.className = 'block text-sun-600';
+      } else if (randomSubdomainDomains.size && !randomSubdomainDomains.has(domain)) {
+        hint.textContent = `${domain} 不在 Worker 返回的 RANDOM_SUBDOMAIN_DOMAINS 中`;
+        hint.className = 'block text-rose-500';
+      } else if (randomSubdomainDomains.has(domain)) {
+        hint.textContent = `将创建 name@随机串.${domain}`;
+        hint.className = 'block text-leaf-600';
+      } else {
+        hint.textContent = '请先点“拉取”确认该域名支持随机子域';
+        hint.className = 'block text-ink-700/50';
+      }
+    }
+
+    $('targetCustom').addEventListener('input', () => {
+      const v = $('targetCustom').value.trim();
+      if (v) {
+        // show custom on button text without breaking select options
+        const btn = document.querySelector('[data-select="target"] .value');
+        btn.textContent = `${v} 个（自定义）`;
+        $('target').value = v;
+      }
+    });
+
+    /* ---------- Tabs ---------- */
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        ['run', 'config', 'keys'].forEach(name => {
+          $('tab-' + name).classList.toggle('hidden', btn.dataset.tab !== name);
+        });
+        if (btn.dataset.tab === 'keys') refreshKeys();
+        if (btn.dataset.tab === 'config') loadConfig();
+      });
+    });
+
+    /* ---------- Helpers ---------- */
+    function setMessage(el, msg, ok = true) {
+      el.textContent = msg || '';
+      el.className = `text-xs font-mono min-h-[1.1rem] ${ok ? 'text-leaf-600' : 'text-rose-500'}`;
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    function formatBytes(value) {
+      const bytes = Math.max(0, Number(value || 0));
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    async function fetchJSON(url, options) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.message || `HTTP ${res.status}`);
+        err.data = data;
+        throw err;
+      }
+      return data;
+    }
+
+    async function secureFetchJSON(url, options = {}) {
+      const token = ($('monitorToken') && $('monitorToken').value.trim()) || sessionStorage.getItem('monitorToken') || '';
+      if (!token) throw new Error('请先输入 MONITOR_TOKEN');
+      sessionStorage.setItem('monitorToken', token);
+      const headers = Object.assign({}, options.headers || {}, { 'X-Monitor-Token': token });
+      return fetchJSON(url, Object.assign({}, options, { headers }));
+    }
+
+    function appendLogsToBox(entries, opts) {
+      const {
+        boxId,
+        afterKey,
+        seenKey,
+        emptySelector = '.text-ink-700\\/40',
+        maxChildren = 800,
+      } = opts;
+      if (!entries || !entries.length) return 0;
+      const box = $(boxId);
+      if (!box) return 0;
+      if (box.querySelector(emptySelector) && box.children.length === 1) box.innerHTML = '';
+      let added = 0;
+      const seen = state[seenKey];
+      for (const e of entries) {
+        // 按 id 去重：并发轮询 / 多标签不会刷同一条
+        if (e.id != null) {
+          if (seen.has(e.id)) {
+            state[afterKey] = Math.max(state[afterKey], e.id);
+            continue;
+          }
+          seen.add(e.id);
+          if (seen.size > 2000) {
+            const keepFrom = e.id - 1500;
+            state[seenKey] = new Set([...seen].filter(id => id >= keepFrom));
+          }
+        }
+        const row = document.createElement('div');
+        row.className = `log-line ${levelClass[e.level] || levelClass.info}`;
+        row.innerHTML = `<span class="text-ink-700/35">[${e.time}]</span> ${escapeHtml(e.message)}`;
+        box.appendChild(row);
+        state[afterKey] = Math.max(state[afterKey], e.id || 0);
+        added += 1;
+      }
+      while (box.children.length > maxChildren) box.removeChild(box.firstChild);
+      if (added && $('autoScroll') && $('autoScroll').checked) {
+        box.scrollTop = box.scrollHeight;
+      }
+      return added;
+    }
+
+    function appendLogs(entries) {
+      return appendLogsToBox(entries, {
+        boxId: 'logBox',
+        afterKey: 'afterId',
+        seenKey: 'seenLogIds',
+      });
+    }
+
+    function appendPostLogs(entries) {
+      return appendLogsToBox(entries, {
+        boxId: 'postLogBox',
+        afterKey: 'postAfterId',
+        seenKey: 'seenPostLogIds',
+        maxChildren: 600,
+      });
+    }
+
+    function renderStatus(data) {
+      state.lastStatus = data;
+      const st = data.status || 'idle';
+      const style = statusStyle[st] || statusStyle.idle;
+      $('statusDot').className = `h-2 w-2 rounded-full ${style.dot}`;
+      $('statusText').textContent = style.text;
+
+      const wasRunning = state.running;
+      $('statSuccess').textContent = data.success_count ?? 0;
+      if ($('statWorkers')) $('statWorkers').textContent = data.workers ?? 0;
+      $('statTarget').textContent = data.target_count ?? 0;
+      if ($('statTargetInline')) $('statTargetInline').textContent = data.target_count ?? 0;
+      $('statFail').textContent = data.fail_count ?? 0;
+      $('statAvg').textContent = data.avg_seconds ? `${data.avg_seconds}s` : '—';
+      $('statElapsed').textContent = `${data.elapsed ?? 0}s`;
+      $('progressLabel').textContent = `${data.progress ?? 0}%`;
+      $('progressBar').style.width = `${data.progress ?? 0}%`;
+      $('outputFile').textContent = data.output_file || '—';
+      if ($('statEmailCreateInline')) $('statEmailCreateInline').textContent = data.success_count ?? 0;
+
+      state.running = !!data.running;
+      if (wasRunning !== state.running) schedulePoll();
+      if (!state.running && data.status === 'done') {
+        setPipelineHint(`本轮结束 · 成功 ${data.success_count ?? 0} / 失败 ${data.fail_count ?? 0} / 目标 ${data.target_count ?? 0}`);
+      }
+      if (!state.running && data.status === 'error') {
+        setPipelineHint(`异常终止 · ${data.error_message || '查看日志'}`);
+      }
+      $('btnStart').disabled = state.running;
+      $('btnStop').disabled = !state.running;
+      workerSelect._setDisabled(state.running);
+      targetSelect._setDisabled(state.running);
+      $('targetCustom').disabled = state.running;
+      $('btnSaveConfig').disabled = state.running;
+
+      if (data.env) {
+        const emailOk = !!data.env.email_configured;
+        $('envWorker').textContent = data.env.email_provider_label || data.env.email_provider || '未配置';
+        $('envWorker').className = `font-mono truncate max-w-[58%] text-right ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
+        $('envMailDomain').textContent = emailOk ? '可用' : '待配置';
+        $('envMailDomain').className = `font-mono ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
+        $('envYes').textContent = 'checkbox 点击';
+        $('envYes').className = 'font-mono text-ink-800';
+        if ($('envProxy')) {
+          const ps = data.proxy_pool || data.env.proxy_pool || {};
+          $('envProxy').textContent = Number(ps.total || 0) ? `${ps.enabled || 0}/${ps.total} 条` : '直连 · 配置';
+          $('envProxy').className = 'font-mono truncate max-w-[58%] text-right text-brand-600';
+        }
+      }
+
+      const list = $('successList');
+      const items = data.recent_success || [];
+      if (!items.length) {
+        list.innerHTML = '<p class="text-ink-700/45">成功账号会显示在这里</p>';
+      } else {
+        list.innerHTML = items.map(it => {
+          const ssoBadge = it.sso
+            ? '<span class="text-leaf-600 font-semibold">sso✓</span>'
+            : '<span class="text-ink-700/35">sso·</span>';
+          return `
+          <div class="flex items-center justify-between gap-3 rounded-xl border border-ink-900/5 bg-paper-50 px-3 py-2">
+            <div class="min-w-0">
+              <div class="text-leaf-600 truncate font-semibold">${escapeHtml(it.email || '')}</div>
+              <div class="text-ink-700/45 truncate">${escapeHtml(it.sso_preview || '')}</div>
+              <div class="text-[10px] text-ink-700/40 truncate">${escapeHtml(it.email_provider || '')}${it.email_domain ? ' · ' + escapeHtml(it.email_domain) : ''}</div>
+            </div>
+            <div class="shrink-0 text-right space-y-1">
+              <div class="flex items-center justify-end gap-2">
+                ${ssoBadge}
+              </div>
+              <div class="text-ink-700/35">${escapeHtml(it.time || '')}</div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    async function pollOnce() {
+      // 严格串行：同一时间只允许一次 logs 请求，杜绝 afterId 竞态刷屏
+      if (state.pollInFlight) return;
+      state.pollInFlight = true;
+      try {
+        // 先拉状态（轻量），再拉日志；afterId / postAfterId 分开游标
+        const status = await fetchJSON('/api/status');
+        renderStatus(status);
+        let after = state.afterId;
+        let postAfter = state.postAfterId;
+        let logs = await fetchJSON(
+          `/api/logs?after_id=${after}&post_after_id=${postAfter}&limit=200`
+        );
+        // 服务重启后 afterId 会大于 latest_id，必须重置否则永远看不到新日志
+        const needResetMain =
+          logs.reset || (logs.latest_id != null && after > logs.latest_id);
+        const needResetPost =
+          logs.post_reset ||
+          (logs.post_latest_id != null && postAfter > logs.post_latest_id);
+        if (needResetMain || needResetPost) {
+          if (needResetMain) {
+            state.afterId = 0;
+            state.seenLogIds = new Set();
+          }
+          if (needResetPost) {
+            state.postAfterId = 0;
+            state.seenPostLogIds = new Set();
+          }
+          logs = await fetchJSON(
+            `/api/logs?after_id=${state.afterId}&post_after_id=${state.postAfterId}&limit=200`
+          );
+        }
+        const newLogs = logs.logs || [];
+        const newPostLogs = logs.post_logs || [];
+        appendLogs(newLogs);
+        appendPostLogs(newPostLogs);
+        // 流水线 hint：主区 + 副区都参与推断（risk/换 token 在副区）
+        const hint =
+          inferPipelineFromLogs(newPostLogs) ||
+          inferPipelineFromLogs(newLogs);
+        if (hint) setPipelineHint(hint);
+        else if (state.running && state.lastStatus) {
+          const ec = state.lastStatus.success_count ?? 0;
+          const tc = state.lastStatus.target_count ?? 0;
+          const cc = state.lastStatus.clean_count ?? 0;
+          const uc = state.lastStatus.unchecked_count ?? 0;
+          setPipelineHint(`运行中 · 创邮 ${ec}/${tc} · CLEAN ${cc} · UNCHECKED ${uc} · 见下方双栏日志`);
+        }
+        state.pollFailCount = 0;
+        if (!state.serverConnected) {
+          state.serverConnected = true;
+          setLogConnBadge(true, '已连接');
+        }
+      } catch (err) {
+        state.pollFailCount = (state.pollFailCount || 0) + 1;
+        state.serverConnected = false;
+        if (state.pollFailCount === 1 || state.pollFailCount % 5 === 0) {
+          setLogConnBadge(false, '控制台断线，重连中…');
+          const box = $('logBox');
+          if (box && !box.querySelector('[data-conn-err]')) {
+            const row = document.createElement('div');
+            row.dataset.connErr = '1';
+            row.className = 'log-line text-rose-500';
+            row.innerHTML = `<span class="text-ink-700/35">[--:--:--]</span> 无法连接控制台（:3333）。请确认 python app.py 在运行，页面会自动重连。`;
+            box.appendChild(row);
+            if ($('autoScroll') && $('autoScroll').checked) box.scrollTop = box.scrollHeight;
+          }
+        }
+      } finally {
+        state.pollInFlight = false;
+      }
+    }
+
+    async function fetchMailDomains(silent = false) {
+      const worker = $('cfgWorker').value.trim();
+      const token = $('cfgToken').value.trim();
+      const hint = $('mailDomainHint');
+      if (!worker) {
+        if (!silent) {
+          hint.textContent = '请先填写 WORKER_DOMAIN 再拉取';
+          hint.className = 'mt-1 text-[11px] text-rose-500';
+        }
+        return null;
+      }
+      const params = new URLSearchParams({ worker_domain: worker, token: token });
+      if (!silent) {
+        hint.textContent = '正在从 freemail 拉取域名…';
+        hint.className = 'mt-1 text-[11px] text-ink-700/55';
+        $('btnFetchDomains').disabled = true;
+      }
+      try {
+        const res = await fetch('/api/mail-domains?' + params.toString());
+        const data = await res.json().catch(() => ({}));
+        const domains = data.domains || [];
+        const defaults = data.default_domains || [];
+        const randomDomains = data.random_subdomain_domains || [];
+        randomSubdomainDomains = new Set(randomDomains.map(String));
+        const selected = data.selected || $('cfgMailDomain').value || 'auto';
+        mailDomainSelect._setOptions(
+          buildDomainOptions(domains, defaults, randomDomains),
+          true
+        );
+        // 若当前选中不在列表且不是 auto，保留；否则用接口 selected
+        const cur = $('cfgMailDomain').value;
+        if (cur && (cur === 'auto' || domains.includes(cur))) {
+          mailDomainSelect._setValue(cur === 'auto' ? (selected || 'auto') : cur, true);
+        } else if (selected) {
+          mailDomainSelect._setValue(selected, true);
+        }
+        updateRandomSubdomainHint();
+        if (data.ok) {
+          hint.textContent = randomDomains.length
+            ? `${data.message || `已拉取 ${domains.length} 个域名`} · ${randomDomains.length} 个支持随机子域`
+            : (data.message || `已拉取 ${domains.length} 个域名`);
+          hint.className = 'mt-1 text-[11px] text-leaf-600';
+        } else {
+          hint.textContent = data.message || '拉取失败';
+          hint.className = 'mt-1 text-[11px] text-rose-500';
+        }
+        return data;
+      } catch (e) {
+        if (!silent) {
+          hint.textContent = e.message || '拉取失败';
+          hint.className = 'mt-1 text-[11px] text-rose-500';
+        }
+        return null;
+      } finally {
+        if (!silent) $('btnFetchDomains').disabled = false;
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const data = await fetchJSON('/api/config');
+        const c = data.config || {};
+        $('cfgWorker').value = c.WORKER_DOMAIN || '';
+        $('cfgToken').value = c.FREEMAIL_TOKEN || '';
+        $('cfgAdminKey').value = c.FREEMAIL_ADMIN_KEY || '';
+        $('cfgLogMaxMb').value = c.LOG_MAX_MB || '10';
+        $('cfgLogFileCount').value = c.LOG_ROTATE_FILE_COUNT || '3';
+        $('cfgUiHost').value = c.UI_HOST || '127.0.0.1';
+        $('cfgUiPort').value = c.UI_PORT || '3333';
+
+        const savedDomain = (c.FREEMAIL_DOMAIN || 'auto').trim() || 'auto';
+        mailDomainSelect._setOptions(buildDomainOptions(
+          savedDomain !== 'auto' ? [savedDomain] : [],
+          []
+        ), false);
+        mailDomainSelect._setValue(savedDomain, true);
+        $('cfgRandomSubdomain').checked = ['1', 'true', 'yes', 'on'].includes(
+          String(c.FREEMAIL_RANDOM_SUBDOMAIN || '0').toLowerCase()
+        );
+        updateRandomSubdomainHint();
+
+        const emailType = (c.EMAIL_TYPE || 'freemail').toLowerCase();
+        emailTypeSelect._setValue(emailType === 'outlook' ? 'outlook-hotmail' : emailType, true);
+        $('outlookConfig').classList.toggle('hidden', !(emailType === 'outlook' || emailType === 'outlook-hotmail'));
+        if ($('cfgAccountList')) $('cfgAccountList').value = c.OUTLOOK_ACCOUNTS || '';
+        if ($('cfgAliasLimit')) $('cfgAliasLimit').value = c.OUTLOOK_ALIAS_LIMIT || '5';
+
+        setMessage($('configMessage'), '已加载当前配置', true);
+        if ($('proxyTestMessage')) {
+          $('proxyTestMessage').textContent = '';
+          $('proxyTestMessage').className = 'text-[11px] font-mono leading-snug text-ink-700/50 break-all';
+        }
+        if ($('proxyEgressLine')) {
+          $('proxyEgressLine').textContent = '';
+          $('proxyEgressLine').classList.add('hidden');
+        }
+        // 邮箱域名发现已迁移到独立邮箱配置页，此处不再后台请求邮箱 API。
+        await loadStorage();
+      } catch (e) {
+        setMessage($('configMessage'), e.message || '加载失败', false);
+      }
+    }
+
+    async function loadStorage() {
+      const data = await fetchJSON('/api/storage');
+      const captures = data.captures || {};
+      const diskLogs = data.logs || {};
+      const logsTotal = Object.values(diskLogs).reduce((sum, value) => sum + Number(value || 0), 0);
+      $('storageUsage').textContent = `抓包 ${captures.groups || 0} 组 / ${formatBytes(captures.bytes)} · 轮转日志 ${formatBytes(logsTotal)}`;
+      return data;
+    }
+
+    async function refreshKeys() {
+      try {
+        const data = await fetchJSON('/api/keys');
+        const list = $('keysList');
+        if (!data.files || !data.files.length) {
+          list.innerHTML = '<li class="text-ink-700/50">暂无文件</li>';
+          return;
+        }
+        list.innerHTML = data.files.map(f => `
+          <li class="flex items-center justify-between gap-2 rounded-xl border border-ink-900/5 bg-paper-50 px-3 py-2">
+            <div class="min-w-0">
+              <div class="truncate text-ink-900 font-semibold">${escapeHtml(f.name)}</div>
+              <div class="text-ink-700/45">${f.count} keys · ${Math.round(f.size / 1024 * 10) / 10} KB</div>
+            </div>
+            <div class="shrink-0 flex items-center gap-3">
+              <a class="text-brand-600 hover:underline font-semibold" href="/import-services">导入中心</a>
+              <a class="text-brand-600 hover:underline font-semibold" href="/${escapeHtml(f.path)}" download>下载</a>
+            </div>
+          </li>`).join('');
+      } catch (e) {
+        $('keysList').innerHTML = `<li class="text-rose-500">${escapeHtml(e.message)}</li>`;
+      }
+    }
+
+    /* ---------- Events ---------- */
+    $('startForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (state.starting || state.running) {
+        setMessage($('formMessage'), '任务已在运行或启动中', false);
+        return;
+      }
+      const target = Number($('targetCustom').value || $('target').value || 1);
+      state.starting = true;
+      $('btnStart').disabled = true;
+      setMessage($('formMessage'), '正在启动...', true);
+      try {
+        const data = await fetchJSON('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target, workers: Number($('workers').value || 3) }),
+        });
+        setMessage($('formMessage'), data.message || '已启动', true);
+        renderStatus(data);
+        refreshKeys();
+        pollOnce();
+      } catch (e) {
+        setMessage($('formMessage'), e.message || '启动失败', false);
+        $('btnStart').disabled = false;
+      } finally {
+        state.starting = false;
+      }
+    });
+
+    $('btnStop').addEventListener('click', async () => {
+      try {
+        const data = await fetchJSON('/api/stop', { method: 'POST' });
+        setMessage($('formMessage'), data.message || '已停止', true);
+        renderStatus(data);
+      } catch (e) {
+        setMessage($('formMessage'), e.message || '停止失败', false);
+      }
+    });
+
+    $('configForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const payload = {
+        LOG_MAX_MB: $('cfgLogMaxMb').value.trim() || '10',
+        LOG_ROTATE_FILE_COUNT: $('cfgLogFileCount').value.trim() || '3',
+        UI_HOST: $('cfgUiHost').value.trim() || '127.0.0.1',
+        UI_PORT: $('cfgUiPort').value.trim() || '3333',
+      };
+      setMessage($('configMessage'), '保存中...', true);
+      $('btnSaveConfig').disabled = true;
+      const t0 = performance.now();
+      try {
+        const data = await fetchJSON('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const ms = Math.round(performance.now() - t0);
+        setMessage($('configMessage'), `${data.message || '已保存'}（${ms}ms）`, true);
+        // 用返回的 env 立刻刷新侧栏，不必再等一轮 status（避免与轮询抢请求）
+        if (data.env) {
+          renderStatus({ ...(state.lastStatus || {}), env: data.env, status: (state.lastStatus && state.lastStatus.status) || 'idle' });
+        }
+        await loadStorage();
+      } catch (e) {
+        setMessage($('configMessage'), e.message || '保存失败', false);
+      } finally {
+        $('btnSaveConfig').disabled = false;
+      }
+    });
+
+    $('btnClearCaptures').addEventListener('click', async () => {
+      if (!confirm('确定删除全部诊断抓包吗？账号结果和普通日志不会受影响。')) return;
+      $('btnClearCaptures').disabled = true;
+      setMessage($('storageMessage'), '正在清理…', true);
+      try {
+        const data = await fetchJSON('/api/storage/captures', { method: 'DELETE' });
+        setMessage($('storageMessage'), data.message || '清理完成', true);
+        await loadStorage();
+      } catch (e) {
+        setMessage($('storageMessage'), e.message || '清理失败', false);
+      } finally {
+        $('btnClearCaptures').disabled = false;
+      }
+    });
+
+    function _paintProxyEgress(data) {
+      const eg = $('proxyEgressLine');
+      if (!eg) return;
+      const label = (data && (data.egress_label || data.egress_ip)) || '';
+      if (data && data.egress_ok && label) {
+        const ms = data.egress_ms ? ` · ${data.egress_ms}ms` : '';
+        const src = data.egress_source ? ` · ${data.egress_source}` : '';
+        eg.textContent = `出口 ${label}${ms}${src}`;
+        eg.className = 'text-[11px] font-mono leading-snug text-sky-700/80 break-all';
+        eg.classList.remove('hidden');
+      } else if (data && data.egress_error) {
+        eg.textContent = `出口失败 · ${data.egress_error}`;
+        eg.className = 'text-[11px] font-mono leading-snug text-amber-600 break-all';
+        eg.classList.remove('hidden');
+      } else if (data && !data.egress_ok) {
+        eg.textContent = '出口未知';
+        eg.className = 'text-[11px] font-mono leading-snug text-ink-700/45 break-all';
+        eg.classList.remove('hidden');
+      } else {
+        eg.textContent = '';
+        eg.classList.add('hidden');
+      }
+    }
+
+    function _paintProxyXai(data, failed) {
+      const msg = $('proxyTestMessage');
+      if (!msg) return;
+      if (!data) {
+        msg.textContent = '测试失败';
+        msg.className = 'text-[11px] font-mono leading-snug text-rose-500 break-all';
+        return;
+      }
+      if (data.xai_ok || data.ok) {
+        const st = data.xai_status || data.status || '?';
+        const ms = data.xai_ms != null ? data.xai_ms : data.ms;
+        msg.textContent = `xAI 连通 · HTTP ${st} · ${ms || 0}ms`;
+        msg.className = 'text-[11px] font-mono leading-snug text-leaf-600 break-all';
+        return;
+      }
+      // 有出口但 xAI 挂 / 全挂
+      const err = data.error || (failed && failed.message) || 'xAI 不通';
+      const ms = data.ms != null ? ` · 总 ${data.ms}ms` : '';
+      if (data.egress_ok) {
+        msg.textContent = `xAI 不通 · ${err}${ms}`;
+      } else {
+        msg.textContent = data.message || `探测失败 · ${err}${ms}`;
+      }
+      msg.className = 'text-[11px] font-mono leading-snug text-rose-500 break-all';
+    }
+
+    async function testProxyConnectivity() {
+      const btn = $('btnProxyTest');
+      const msg = $('proxyTestMessage');
+      const eg = $('proxyEgressLine');
+      if (btn) btn.disabled = true;
+      if (eg) {
+        eg.textContent = '① 探测出口 IP / 区域…';
+        eg.className = 'text-[11px] font-mono leading-snug text-ink-700/50 break-all';
+        eg.classList.remove('hidden');
+      }
+      if (msg) {
+        msg.textContent = '② 等待出口后测 x.ai…';
+        msg.className = 'text-[11px] font-mono leading-snug text-ink-700/45 break-all';
+      }
+      try {
+        const data = await fetchJSON('/api/proxy/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proxy: '',
+          }),
+        });
+        _paintProxyEgress(data);
+        _paintProxyXai(data, null);
+      } catch (e) {
+        // fetchJSON 在 502 时抛错，但 body 可能在 e.data
+        const d = e.data || {};
+        _paintProxyEgress(d);
+        if (d && (d.message || d.error || d.egress_ip != null)) {
+          _paintProxyXai(d, e);
+        } else if (msg) {
+          msg.textContent = e.message || '测试失败';
+          msg.className = 'text-[11px] font-mono leading-snug text-rose-500 break-all';
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    if ($('btnProxyTest')) {
+      $('btnProxyTest').addEventListener('click', () => { testProxyConnectivity(); });
+    }
+
+    $('btnReloadConfig').addEventListener('click', loadConfig);
+    $('btnRefreshKeys').addEventListener('click', refreshKeys);
+    $('btnFetchDomains').addEventListener('click', () => fetchMailDomains(false));
+
+    $('btnClearLogs').addEventListener('click', async () => {
+      try {
+        await fetchJSON('/api/logs/clear', { method: 'POST' });
+        $('logBox').innerHTML = '<div class="text-ink-700/40">主流程日志已清空</div>';
+        if ($('postLogBox')) {
+          $('postLogBox').innerHTML = '<div class="text-ink-700/40">Risk/换 token 日志已清空</div>';
+        }
+        state.afterId = 0;
+        state.postAfterId = 0;
+        state.seenLogIds = new Set();
+        state.seenPostLogIds = new Set();
+      } catch (e) {
+        setMessage($('formMessage'), e.message, false);
+      }
+    });
+
+    // 密码框眼睛：显示 / 隐藏
+    const EYE_OPEN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    document.querySelectorAll('.toggle-eye').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = $(btn.dataset.target);
+        if (!input) return;
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.innerHTML = show ? EYE_OFF : EYE_OPEN;
+        btn.setAttribute('aria-label', show ? '隐藏' : '显示');
+        btn.title = show ? '隐藏' : '显示';
+      });
+    });
+
+    // boot
+    pollOnce();
+    loadConfig();
+    refreshKeys();
+    schedulePoll();
+  </script>
+</body>
+</html>

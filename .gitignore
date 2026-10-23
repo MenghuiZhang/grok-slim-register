@@ -1,0 +1,68 @@
+# 本地密钥与环境（禁止提交）
+.env
+.env.*
+/data
+/debug
+!.env.example
+deploy/deploy.env
+deploy/restic.env
+deploy/.deploy-state
+import_services.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+.ace-tool/
+.claude/
+.agents/
+.playwright-mcp/
+.workbuddy/
+
+# 运行产物与隐私数据
+keys/
+logs/
+register_sso/
+converted_auth/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+
+# 代理/个人清单（若本地存在）
+data/proxy_pool.json
+data/domain_pool.json
+data/asn_blacklist.json
+data/bfs_scans/
+data/account_checks/
+data/account_checks_config.json
+data/account_check_states.json
+data/account_check_credentials/
+data/account_check_pending/
+data/debug-profile/
+proxies/
+proxies*.txt
+*_proxy*.txt
+*.har
+
+# 本地备份
+backups/
+*.bak-*
+
+# 离线构建用的浏览器包（1.2GB，不入库）
+vendor/
