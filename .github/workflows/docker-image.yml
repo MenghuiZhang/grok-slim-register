@@ -78,6 +78,14 @@ jobs:
           sudo docker image prune -af || true
           df -h /
 
+      - name: 清空旧缓存
+        # 每次构建前把 GHA 缓存全部删掉：本仓库镜像层（Camoufox 浏览器层 ~1.3GiB×2）
+        # 增长很快，而 cache-from 每次都会刷新条目的访问时间，7 天不活跃和 10GB LRU
+        # 淘汰都触发不了，缓存会一直涨。改为冷启动构建（更慢，但缓存盘子归零）。
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh cache delete --all || true
+
       - name: Set up QEMU
         if: contains(steps.cfg.outputs.platform, 'arm64')
         uses: docker/setup-qemu-action@v3
