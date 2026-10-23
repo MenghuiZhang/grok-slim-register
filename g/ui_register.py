@@ -767,10 +767,42 @@ def build_proxy_option(spec: str) -> tuple[dict[str, str], bool]:
     return option, loopback
 
 
-def probe_proxy_geo(proxy_option: dict[str, str]) -> Optional[dict]:
+GEO_PROBE_ENDPOINTS: tuple[tuple[str, str], ...] = (
+    # ip-api 免费版只有 HTTP(80)，不少机场/节点只放行 443 或屏蔽明文 HTTP，
+    # 所以按 HTTPS 端点优先的顺序逐个尝试，命中一个即返回。
+    ("ipwho.is", "https://ipwho.is/"),
+    ("ip.sb", "https://api.ip.sb/geoip"),
+    ("ip-api", "http://ip-api.com/json/?fields=status,country,countryCode,timezone,lat,lon,query"),
+)
+
+
+def _normalize_geo(provider: str, data: object) -> Optional[dict]:
+    """把不同探测端点的响应归一化为 {ip, cc, tz}；失败返回 None。"""
+    if not isinstance(data, dict):
+        return None
+    if provider == "ip-api":
+        if data.get("status") != "success" or not data.get("query"):
+            return None
+        return {"ip": data.get("query"), "cc": data.get("countryCode"), "tz": data.get("timezone")}
+    if provider == "ipwho.is":
+        tz = data.get("timezone")
+        tz = tz.get("id") if isinstance(tz, dict) else tz
+        if not data.get("ip"):
+            return None
+        return {"ip": data.get("ip"), "cc": data.get("country_code"), "tz": tz}
+    if provider == "ip.sb":
+        if not data.get("ip"):
+            return None
+        return {"ip": data.get("ip"), "cc": data.get("country_code"), "tz": data.get("timezone")}
+    return None
+
+
+def probe_proxy_geo(
+    proxy_option: dict[str, str], timeout: float = 12.0, attempts: int = 2
+) -> Optional[dict]:
     """通过节点出口探测一次 IP 地理，用于日志与 geoip 对齐决策。
 
-    返回 ip-api 的 JSON dict；任何一步失败返回 None。
+    返回归一化的 {ip, cc, tz}；所有端点都失败返回 None。
     Camoufox 的 ``geoip=True`` 会在启动阶段自行查出口 IP，查不通会直接报错，
     所以这里先预探测：探测成功的节点才启用 geoip 对齐。
     """
@@ -784,19 +816,19 @@ def probe_proxy_geo(proxy_option: dict[str, str]) -> Optional[dict]:
         auth = quote(proxy_option["username"], safe="")
         pwd = quote(proxy_option.get("password", ""), safe="")
         url = server.replace("://", f"://{auth}:{pwd}@", 1)
+    # Firefox 对 socks5 默认走代理远端解析 DNS，探测保持同语义（socks5h）
+    url = url.replace("socks5://", "socks5h://", 1)
     proxies = {"http": url, "https": url}
-    try:
-        resp = requests.get(
-            "http://ip-api.com/json/?fields=status,country,countryCode,timezone,lat,lon,query",
-            proxies=proxies,
-            timeout=10,
-        )
-        data = resp.json()
-    except Exception:
-        return None
-    if not isinstance(data, dict) or data.get("status") != "success" or not data.get("query"):
-        return None
-    return data
+    for provider, endpoint in GEO_PROBE_ENDPOINTS:
+        for _ in range(max(1, attempts)):
+            try:
+                resp = requests.get(endpoint, proxies=proxies, timeout=timeout)
+                geo = _normalize_geo(provider, resp.json())
+            except Exception:
+                continue
+            if geo:
+                return geo
+    return None
 
 
 def turnstile_solved(page) -> bool:
@@ -1032,8 +1064,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if geo:
             kwargs["geoip"] = True
             log(
-                f"出口 {geo.get('countryCode')}（{geo.get('query')}）"
-                f" 时区 {geo.get('timezone')}，启用 geoip 对齐"
+                f"出口 {geo.get('cc')}（{geo.get('ip')}）"
+                f" 时区 {geo.get('tz')}，启用 geoip 对齐"
             )
         else:
             log("出口地理探测失败，跳过 geoip 对齐（时区/坐标可能与节点不匹配）")
