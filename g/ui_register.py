@@ -767,6 +767,38 @@ def build_proxy_option(spec: str) -> tuple[dict[str, str], bool]:
     return option, loopback
 
 
+def probe_proxy_geo(proxy_option: dict[str, str]) -> Optional[dict]:
+    """通过节点出口探测一次 IP 地理，用于日志与 geoip 对齐决策。
+
+    返回 ip-api 的 JSON dict；任何一步失败返回 None。
+    Camoufox 的 ``geoip=True`` 会在启动阶段自行查出口 IP，查不通会直接报错，
+    所以这里先预探测：探测成功的节点才启用 geoip 对齐。
+    """
+    from urllib.parse import quote
+
+    import requests
+
+    server = proxy_option.get("server", "")
+    url = server
+    if proxy_option.get("username"):
+        auth = quote(proxy_option["username"], safe="")
+        pwd = quote(proxy_option.get("password", ""), safe="")
+        url = server.replace("://", f"://{auth}:{pwd}@", 1)
+    proxies = {"http": url, "https": url}
+    try:
+        resp = requests.get(
+            "http://ip-api.com/json/?fields=status,country,countryCode,timezone,lat,lon,query",
+            proxies=proxies,
+            timeout=10,
+        )
+        data = resp.json()
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("status") != "success" or not data.get("query"):
+        return None
+    return data
+
+
 def turnstile_solved(page) -> bool:
     """检查 Turnstile 是否已下发 token（含 shadow DOM）。"""
     try:
@@ -933,17 +965,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     # 控制台按轮次注入账号级代理（GROK_REGISTER_PROXY）；命令行仍可用 --proxy
     proxy_spec = str(args.proxy or "").strip()
     proxy_option: dict[str, str] | None = None
-    proxy_loopback = False
     proxy_label = ""
     if proxy_spec:
         try:
-            proxy_option, proxy_loopback = build_proxy_option(proxy_spec)
+            proxy_option, _loopback = build_proxy_option(proxy_spec)
             from g.proxy_pool import mask_proxy
 
             proxy_label = mask_proxy(proxy_spec)
         except Exception as exc:
             log(f"代理解析失败（{exc}），本轮直连")
-            proxy_spec, proxy_option, proxy_loopback = "", None, False
+            proxy_spec, proxy_option = "", None
         else:
             log(f"节点 {proxy_label}")
             # 收码请求与注册浏览器同出口（仅 EMAIL_PROXY_MODE=register 时生效）
@@ -994,7 +1025,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         kwargs["user_data_dir"] = args.profile
     if proxy_option:
         kwargs["proxy"] = proxy_option
-        kwargs["geoip"] = proxy_loopback
+        # 指纹与出口 IP 对齐：时区/经纬度跟随节点所在地，降低 Cloudflare 风控。
+        # 所有真实节点都启用；只有出口探测失败的节点才跳过（geoip 启动阶段
+        # 查不到 IP 会直接抛错，预探测先把它筛掉）。
+        geo = probe_proxy_geo(proxy_option)
+        if geo:
+            kwargs["geoip"] = True
+            log(
+                f"出口 {geo.get('countryCode')}（{geo.get('query')}）"
+                f" 时区 {geo.get('timezone')}，启用 geoip 对齐"
+            )
+        else:
+            log("出口地理探测失败，跳过 geoip 对齐（时区/坐标可能与节点不匹配）")
 
     result: dict[str, Any] = {
         "email": email,
