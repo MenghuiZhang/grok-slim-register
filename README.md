@@ -166,20 +166,133 @@ docker compose up -d --build
   选了 `linux/arm64` 会走 QEMU，明显更慢
 - 缓存用 `type=gha`（仓库上限 10GB，`mode=max` 可能被频繁淘汰，可改 registry cache）
 
-拉取和运行：
+### VPS 部署（直接拉 GHCR 镜像，不在服务器上构建）
+
+服务器上**不需要** `vendor/`、不需要下载 1.28GB 浏览器，也不需要几 GB 的构建缓存 —— 镜像里已经带好了。
+建议配置：2 核 4G 起，磁盘 ≥ 20G（镜像约 1.5GB 压缩 / 3.4GB 解压，加日志截图会慢慢涨）。
+
+#### 1. 装 Docker
 
 ```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u <owner> --password-stdin
-docker pull ghcr.io/<owner>/<repo>:latest
-docker run -d --name grok-web --init --shm-size=2gb \
+curl -fsSL https://get.docker.com | sh
+sudo systemctl enable --now docker
+docker compose version        # 需要 v2（compose 插件）
+```
+
+#### 2. 拉代码 + 填 `.env`
+
+```bash
+git clone https://github.com/MenghuiZhang/grok-slim-register.git /opt/grok
+cd /opt/grok
+cp .env.example .env
+sed -i "s|^MONITOR_TOKEN=.*|MONITOR_TOKEN=$(openssl rand -hex 32)|" .env
+mkdir -p data logs keys register_sso converted_auth
+chmod 600 .env
+```
+
+至少确认这几项：
+
+| 变量 | 说明 |
+|---|---|
+| `MONITOR_TOKEN` | 运维 API（存储/导入）鉴权，上面的命令已生成随机值 |
+| `EMAIL_PROVIDER` | `cloudflare_temp` / `freemail` / `yyds` / `outlook`，并填对应 `EMAIL_*` 块 |
+| `SUB2API_URL`、`UPSTREAM_URL` | 下游在同一台机器时用 `http://host.docker.internal:9898`，**不要写 127.0.0.1**（那是容器自己） |
+| `UPSTREAM_ADMIN_EMAIL` / `UPSTREAM_ADMIN_PASSWORD` | sub2api 管理员账号 |
+| `UI_HOST` | 默认 `127.0.0.1`，只监听本机；要公网访问请走反代（见第 4 步） |
+
+代理池、域名池、导入服务目标这些不用手改 `.env`，启动后到控制台页面里配，会存到 `data/`。
+
+#### 3. 拉镜像并启动
+
+```bash
+export GROK_IMAGE_REF=ghcr.io/menghuizhang/grok-slim-register:latest
+docker compose pull
+docker compose up -d --no-build
+docker compose ps
+curl -s http://127.0.0.1:3333/api/health     # {"ok":true,...}
+```
+
+- `--no-build` 强制只用镜像；`compose.yaml` 里的 `build:` 段只在本地构建时才生效
+- 不用 compose 的话，等价命令：
+
+```bash
+docker run -d --name grok-web --init --restart unless-stopped --shm-size=2gb \
   -p 127.0.0.1:3333:3333 \
   -v "$PWD/.env:/app/.env" -v "$PWD/data:/app/data" -v "$PWD/logs:/app/logs" \
   -v "$PWD/keys:/app/keys" -v "$PWD/register_sso:/app/register_sso" \
   -v "$PWD/converted_auth:/app/converted_auth" \
-  ghcr.io/<owner>/<repo>:latest
+  ghcr.io/menghuizhang/grok-slim-register:latest
 ```
 
-也可以直接改 `compose.yaml` 的 `image:`（或设 `GROK_IMAGE_REF=ghcr.io/<owner>/<repo>:latest`）跑 `docker compose up -d --no-build`。
+> ⚠️ 别在生产机上 `docker compose build`：那会重新下载浏览器包并占几 GB 构建缓存，VPS 上没必要。
+
+#### 4. 怎么访问控制台
+
+最省事：SSH 隧道（不暴露公网）
+
+```bash
+ssh -L 3333:127.0.0.1:3333 user@your-vps
+# 然后本地浏览器打开 http://127.0.0.1:3333
+```
+
+要公网访问就用反代 + HTTPS，并把 3333 关在防火墙内：
+
+```caddy
+# Caddy（自动证书）
+grok.example.com {
+    basic_auth {
+        admin <bcrypt-hash>     # caddy hash-password 生成
+    }
+    reverse_proxy 127.0.0.1:3333
+}
+```
+
+```nginx
+# Nginx
+location / {
+    proxy_pass http://127.0.0.1:3333;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_read_timeout 300s;
+}
+```
+
+```bash
+ufw allow 22/tcp && ufw allow 80,443/tcp && ufw enable   # 不放行 3333
+```
+
+> 注册是容器内的浏览器发起的，不经过你的反代；反代只影响你访问控制台。
+
+#### 5. 升级 / 运维 / 备份
+
+```bash
+docker compose pull && docker compose up -d --no-build   # 升级到新镜像
+docker compose logs -f --tail=200                        # 看实时日志
+docker compose restart                                   # 重启
+docker stats --no-stream                                 # 资源占用
+```
+
+备份（换机器时直接拷走这些就够）：
+
+```bash
+tar czf ~/grok-$(date +%F).tgz .env data keys register_sso converted_auth
+```
+
+- `register_sso/`：注册结果（含 SSO / 换到的 token）
+- `converted_auth/`：CPA / OAuth 凭证
+- `data/`：代理池、域名池、导入服务配置
+- 日志靠 `LOG_MAX_MB` / `LOG_ROTATE_FILE_COUNT` 自动轮转；截图/诊断包可用控制台「存储」面板清理
+
+#### 6. 常见问题（VPS）
+
+| 现象 | 处理 |
+|---|---|
+| `docker compose up` 报 `.env` 挂载失败 | `compose.yaml` 用 `create_host_path: false`，必须先 `cp .env.example .env` |
+| 公网打不开 3333 | 默认 `UI_HOST=127.0.0.1`，是设计如此；用 SSH 隧道或反代 |
+| 端口冲突 | `.env` 里设 `GROK_HOST_PORT=3334`（compose 会用它做宿主机端口） |
+| 启动注册提示「邮箱配置不可用」 | 到「邮箱配置」页填好并点测试；`cloudflare_temp` 需要 base_url + site_token + 至少一个启用域名 |
+| 容器一直 `starting` / `unhealthy` | 首次启动有 90s 的 start-period；超时就看 `docker compose logs` |
+| ARM VPS（Oracle A1、树莓派等） | `latest` 目前只有 amd64；在 Actions 手动 `Run workflow` 选 `linux/amd64,linux/arm64` 生成多架构 manifest（**别只选 arm64**，那会把 `latest` 覆盖成单架构） |
 
 ### 镜像体积
 
