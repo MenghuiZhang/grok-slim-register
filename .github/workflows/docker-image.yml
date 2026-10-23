@@ -22,9 +22,10 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    # 只改文档不必重新构建镜像
+    # 只改文档/部署脚本不必重新构建镜像
     paths-ignore:
       - "**.md"
+      - "deploy/**"
   pull_request:
     paths:
       - Dockerfile

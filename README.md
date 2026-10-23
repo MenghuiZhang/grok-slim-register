@@ -171,6 +171,8 @@ docker compose up -d --build
 服务器上**不需要** `vendor/`、不需要下载 1.28GB 浏览器，也不需要几 GB 的构建缓存 —— 镜像里已经带好了。
 建议配置：2 核 4G 起，磁盘 ≥ 20G（镜像约 1.5GB 压缩 / 3.4GB 解压，加日志截图会慢慢涨）。
 
+> 懒人版：`deploy/vps-deploy.sh` 把下面第 1–3 步全做了，见文末「一键部署脚本」。手动部署就按 1→6 走。
+
 #### 1. 装 Docker
 
 ```bash
@@ -293,6 +295,36 @@ tar czf ~/grok-$(date +%F).tgz .env data keys register_sso converted_auth
 | 启动注册提示「邮箱配置不可用」 | 到「邮箱配置」页填好并点测试；`cloudflare_temp` 需要 base_url + site_token + 至少一个启用域名 |
 | 容器一直 `starting` / `unhealthy` | 首次启动有 90s 的 start-period；超时就看 `docker compose logs` |
 | ARM VPS（Oracle A1、树莓派等） | `latest` 目前只有 amd64；在 Actions 手动 `Run workflow` 选 `linux/amd64,linux/arm64` 生成多架构 manifest（**别只选 arm64**，那会把 `latest` 覆盖成单架构） |
+
+#### 7. 一键部署脚本
+
+`deploy/vps-deploy.sh` 等价于上面 1–3 步：装/校验 Docker → 克隆代码 → 生成 `.env`（自动填随机 `MONITOR_TOKEN`）→ 建挂载目录 → 拉镜像 → `up -d --no-build` → 等健康检查 → 打印访问方式。
+
+```bash
+# 在 VPS 上（首次，不想 clone 仓库也行）
+curl -fsSL https://raw.githubusercontent.com/MenghuiZhang/grok-slim-register/main/deploy/vps-deploy.sh -o deploy.sh
+sudo bash deploy.sh                     # 默认 /opt/grok + 3333 端口
+# 或者已经 clone 了仓库
+sudo bash deploy/vps-deploy.sh --dir /opt/grok --port 3333
+
+# 先看看它会做什么（不执行）
+bash deploy/vps-deploy.sh --dir /opt/grok --dry-run
+```
+
+> 脚本自带 shebang，`chmod +x deploy/vps-deploy.sh` 后可以直接 `./deploy/vps-deploy.sh`；没执行权限就用 `bash` 前缀。
+
+| 命令 | 作用 |
+|---|---|
+| `bash deploy.sh` | 首次部署 / 幂等重跑 |
+| `bash deploy.sh --update` | 拉新镜像并重建容器（升级用） |
+| `bash deploy.sh --status` | 容器状态 + 健康检查 |
+| `bash deploy.sh --logs` | 跟踪日志（`logs -f --tail=200`） |
+| `bash deploy.sh --restart` / `--stop` | 重启 / 停止并删容器（数据目录保留） |
+| `bash deploy.sh --dry-run` | 只打印将要执行的命令 |
+
+可选参数：`--dir`（安装目录）、`--port`（宿主机端口）、`--bind`（监听地址，默认 `127.0.0.1`）、`--image`（换镜像地址）、`--repo`（换仓库）、`-y`（缺 Docker 时自动装）。
+私有镜像用 `GHCR_USER=xxx GHCR_TOKEN=xxx ./deploy.sh`。
+脚本会把 `GROK_IMAGE_REF` / `GROK_HOST_PORT` / `GROK_BIND_ADDRESS` 写进 `.env`，之后直接 `docker compose up -d --no-build` 也能复现同样的配置。
 
 ### 镜像体积
 
