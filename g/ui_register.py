@@ -951,10 +951,15 @@ def click_turnstile_macos(
         log(f"点击 checkbox ({vx},{vy}) via {tag} → solved={solved}")
         if solved:
             return f"{tag}({vx},{vy})"
+        # widget 进入 "Verification failed" 红字终态说明 Cloudflare 已拒绝
+        # （多为节点 IP 信誉差），此时继续点击只会浪费时间，交给节点轮换。
+        if "verification failed" in page_text(page).lower():
+            log("检测到 Verification failed 终态，停止点击剩余候选坐标")
+            return "verification-failed"
         if index + 1 < len(candidates):
             # 没点到 checkbox 或挑战失败：先等 widget 回落，再试下一个坐标
             page.wait_for_timeout(1500)
-    return "no-iframe"
+    return "exhausted"
 
 
 class BrowserCrashGuard:
@@ -1363,6 +1368,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                 clicked = click_turnstile_macos(page, shot_dir=shot_dir)
                 log(f"Turnstile 点击: {clicked}")
                 result["steps"].append(f"turnstile:click:{clicked}")
+                if clicked == "verification-failed":
+                    # Cloudflare 已拒绝挑战（多为节点 IP 信誉差），token 必然没有，
+                    # 提交必被拒：跳过等待与提交，交由控制台按节点失败归类轮换。
+                    result["error"] = "Turnstile Verification failed（节点疑似被 Cloudflare 标记）"
+                    log(result["error"])
+                    shot(page, "08-turnstile-failed")
+                    return flush_result(7)
                 solved = turnstile_solved(page) or wait_turnstile(page, 6.0)
                 if solved:
                     # token 刚下发时 React 还会重渲染，等它写进表单状态再提交
