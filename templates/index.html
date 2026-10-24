@@ -327,7 +327,7 @@
         <article class="panel rounded-2xl p-4">
           <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已用时间</p>
           <p id="statElapsed" class="mt-1 font-display text-3xl font-bold text-sun-500">0s</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">并行 <span id="statWorkers">3</span> 进程</p>
+          <p class="text-xs text-ink-700/50 font-mono mt-1">单进程串行注册</p>
         </article>
       </section>
 
@@ -367,16 +367,13 @@
               <h2 class="font-display font-semibold text-ink-900">启动参数</h2>
               <form id="startForm" class="space-y-4">
                 <div>
-                  <label class="field-label" for="workers">并发进程</label>
-                  <div class="c-select" data-select="workers">
-                    <button type="button" class="c-select-btn" id="workersBtn" aria-haspopup="listbox">
-                      <span class="value">3 进程</span>
-                      <svg class="chev" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                  <label class="field-label">并发进程</label>
+                  <div class="c-select">
+                    <button type="button" class="c-select-btn" disabled>
+                      <span class="value">1 进程（单进程模式）</span>
                     </button>
-                    <div class="c-select-menu" role="listbox"></div>
-                    <input type="hidden" id="workers" name="workers" value="3" />
                   </div>
-                  <p class="mt-1.5 text-[11px] text-ink-700/50">多进程并行注册，每进程独立浏览器与指纹</p>
+                  <p class="mt-1.5 text-[11px] text-ink-700/50">单进程串行注册，轮间自动冷却</p>
                 </div>
                 <div>
                   <label class="field-label" for="target">创建邮箱目标</label>
@@ -799,12 +796,6 @@
       document.querySelectorAll('.c-select-btn.open').forEach(b => b.classList.remove('open'));
     });
 
-    const workerSelect = initSelect(
-      document.querySelector('[data-select="workers"]'),
-      [1, 2, 3, 4, 5, 6, 7, 8].map(n => ({ value: n, label: `${n} 进程` })),
-      3
-    );
-
     const targetSelect = initSelect(
       document.querySelector('[data-select="target"]'),
       [1,5,10,20,50,100,200,500,1000].map(n => ({ value: n, label: `${n} 个` })),
@@ -1000,7 +991,6 @@
 
       const wasRunning = state.running;
       $('statSuccess').textContent = data.success_count ?? 0;
-      if ($('statWorkers')) $('statWorkers').textContent = data.workers ?? 0;
       $('statTarget').textContent = data.target_count ?? 0;
       if ($('statTargetInline')) $('statTargetInline').textContent = data.target_count ?? 0;
       $('statFail').textContent = data.fail_count ?? 0;
@@ -1033,7 +1023,6 @@
       }
       $('btnStart').disabled = state.running;
       $('btnStop').disabled = !state.running;
-      workerSelect._setDisabled(state.running);
       targetSelect._setDisabled(state.running);
       $('targetCustom').disabled = state.running;
       if ($('autoExchange')) $('autoExchange').disabled = state.running;
@@ -1316,7 +1305,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             target,
-            workers: Number($('workers').value || 3),
+            workers: 1,
             auto_exchange: $('autoExchange') ? $('autoExchange').checked : true,
           }),
         });

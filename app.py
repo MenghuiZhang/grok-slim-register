@@ -6,6 +6,7 @@ Grok 注册机 Web 控制台
 import json
 import hmac
 import os
+import random
 import re
 import signal
 import subprocess
@@ -278,9 +279,16 @@ class RegisterRunner:
     - 成功后异步换 token（SSO → access_token）：结果回写 JSON 并缓存给导入服务复用
     """
 
-    MAX_WORKERS = 8
+    MAX_WORKERS = 1
     # 换 token 单次超时（秒）；device flow 本身还有内部轮询预算
     TOKEN_EXCHANGE_TIMEOUT = 28
+    # 轮间冷却：成功后随机 5-10s；失败按连续失败次数走 20/40/60/...s 梯子，
+    # 60s 最多 10 次，超过即熔断停止整个任务（单进程下没有其他 worker 兜底）。
+    COOLDOWN_OK_MIN = 5.0
+    COOLDOWN_OK_MAX = 10.0
+    FAIL_LADDER_HEAD = (20, 40)  # 连续第 1/2 次失败的冷却
+    FAIL_LADDER_CAP = 60.0  # 之后的固定冷却
+    FAIL_LADDER_CAP_MAX = 10  # 60s 冷却最多出现次数
     # 单轮注册子进程硬超时（秒）。正常一轮 1-3 分钟即可完成；超时意味着
     # 注册子进程或其 Playwright 驱动/浏览器已挂死（如驱动进程崩溃后
     # Python 端仍挂在 wait 上），击杀整棵进程树、本轮记失败并继续下一轮。
@@ -335,7 +343,7 @@ class RegisterRunner:
             # 注册子进程跑完但后台还在换 token，也算任务进行中（UI 不应判定结束）
             return self._live_workers > 0 or self._pending_tokens > 0
 
-    def start(self, target: int = 1, workers: int = 3, env_overrides: dict | None = None) -> dict:
+    def start(self, target: int = 1, workers: int = 1, env_overrides: dict | None = None) -> dict:
         with self._lock:
             if self.is_running():
                 return {"ok": False, "message": "注册任务正在运行", "status": self.status}
@@ -345,7 +353,7 @@ class RegisterRunner:
             self.start_time = time.time()
             self.end_time = None
             self.target_count = max(1, int(target))
-            self.workers = max(1, min(self.MAX_WORKERS, int(workers)))
+            self.workers = 1
             self._next_round = 0
             self.success_count = 0
             self.fail_count = 0
@@ -377,7 +385,7 @@ class RegisterRunner:
                 t.start()
         return {
             "ok": True,
-            "message": f"已开始注册：目标 {self.target_count} 个 · {self.workers} 进程并行",
+            "message": f"已开始注册：目标 {self.target_count} 个 · 单进程串行",
             "status": "running",
             "target": self.target_count,
             "workers": self.workers,
@@ -524,10 +532,27 @@ class RegisterRunner:
         except Exception as exc:
             self._log(f"{logp} 释放代理失败: {exc}", "warn")
 
+    def _cooldown(self, wid: int, rnd: int, seconds: float, reason: str) -> bool:
+        """轮间冷却，每秒检查停止信号。返回 False 表示停止被触发，应结束任务。"""
+        if seconds <= 0:
+            return not self._stop.is_set()
+        self._log(
+            f"[W{wid}] 第 {rnd} 轮结束 · {reason} · 冷却 {seconds:.0f}s 后继续",
+            "info",
+        )
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if self._stop.is_set():
+                return False
+            time.sleep(min(1.0, max(0.0, deadline - time.time())))
+        return not self._stop.is_set()
+
     def _worker(self, wid: int, overrides: dict) -> None:
         logp = f"[W{wid}]"
         with self._lock:
             seq = self._run_seq
+        consecutive_fails = 0
+        cap_cooldowns = 0  # 60s 档已用次数
         try:
             if wid == 1 and callable(self.on_run_start):
                 try:
@@ -538,168 +563,50 @@ class RegisterRunner:
                 rnd = self._claim_round()
                 if not rnd:
                     break
-                lease, skipped = self._lease_register_proxy(wid, rnd)
-                if skipped:
-                    self._release_register_proxy(lease, ok=False, error="", logp=logp)
-                    if self._stop.is_set():
-                        break
-                    with self._lock:
-                        self.fail_count += 1
-                    self._log(
-                        f"{logp} 第 {rnd} 轮跳过：代理池没有可用节点（占用/冷却/停用）",
-                        "warn",
-                    )
-                    continue
-                round_env = dict(overrides)
-                # 旧单代理变量一律不参与注册，节点只由代理池租约决定
-                for legacy in ("GROK_PROXY", "DEBUG_PROXY"):
-                    round_env.pop(legacy, None)
-                if lease is not None and not lease.direct:
-                    # 子进程按账号拿节点：注册浏览器 + 收码邮箱都锁同一出口
-                    round_env["GROK_REGISTER_PROXY"] = lease.spec
-                    node_label = lease.masked
-                else:
-                    round_env.pop("GROK_REGISTER_PROXY", None)
-                    node_label = "直连（代理池为空）"
-                # cloudflare_temp + 域名池非空时，按池子轮换结果下发候选队列：
-                # 子进程逐域尝试，结果回写 JSON，本进程持久计数（成功/失败/冷却垫底）
-                round_env.pop("EMAIL_DOMAIN_QUEUE", None)
-                try:
-                    if resolved_email_config(dict(os.environ))["provider"] == "cloudflare_temp":
-                        queue = domain_pool.pick_domains()
-                        if queue:
-                            round_env["EMAIL_DOMAIN_QUEUE"] = ",".join(queue)
-                except Exception as exc:
-                    self._log(f"{logp} 域名轮换队列生成失败，本轮走默认创邮: {exc}", "warn")
-                self._log(
-                    f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}",
-                    "info",
-                )
-                rel_out = f"register_sso/ui_{uuid.uuid4().hex}.json"
-                cmd = [
-                    sys.executable,
-                    "-m",
-                    "g.ui_register",
-                    "--headless",
-                    "--window",
-                    "1500x950",
-                    "--out",
-                    rel_out,
-                ]
-                account: dict | None = None
-                code = -1
-                error = ""
-                try:
-                    proc = subprocess.Popen(
-                        cmd,
-                        cwd=str(BASE_DIR),
-                        env=self._env(round_env),
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
-                        # 独立进程组：超时/停止时 killpg 连 Camoufox/Firefox 一起清掉
-                        start_new_session=True,
-                    )
-                    with self._lock:
-                        self._procs[wid] = proc
-                    # 日志搬运放独立线程：主线程才能用带超时的 wait 轮询兜底
-                    # （否则子进程静默挂死时 for-line 读 stdout 会永远阻塞，
-                    # 驱动进程崩溃后的"卡死"正是这种形态）
-                    def _pump(p: subprocess.Popen = proc) -> None:
-                        assert p.stdout is not None
-                        for raw in p.stdout:
-                            line = raw.rstrip("\n")
-                            if line.startswith("[ui-register] "):
-                                line = line[len("[ui-register] "):]
-                            if line:
-                                self._log(f"{logp} {line}", "info")
-
-                    pump = threading.Thread(target=_pump, daemon=True, name=f"{logp}-pump")
-                    pump.start()
-                    round_deadline = (
-                        time.time() + self.round_timeout if self.round_timeout > 0 else None
-                    )
-                    timed_out = False
-                    while True:
-                        try:
-                            code = proc.wait(timeout=1.0)
-                            break
-                        except subprocess.TimeoutExpired:
-                            pass
-                        if round_deadline is not None and time.time() > round_deadline:
-                            timed_out = True
-                            self._log(
-                                f"{logp} 第 {rnd} 轮超过 {int(self.round_timeout)}s 未结束，"
-                                "判定子进程挂死，强制终止整棵进程树",
-                                "error",
-                            )
-                            _kill_process_tree(proc)
-                            code = proc.wait()
-                            break
-                    pump.join(timeout=5)
-                    # 无论本轮成败，都先把逐域名创邮结果落账到域名池（失败连击/冷却）
-                    for attempt in self._read_domain_attempts(rel_out):
-                        try:
-                            domain_pool.record_create_result(
-                                str(attempt.get("domain") or ""),
-                                bool(attempt.get("ok")),
-                                str(attempt.get("message") or ""),
-                            )
-                        except Exception as exc:
-                            self._log(f"{logp} 域名计数落账失败: {exc}", "warn")
-                    if self._stop.is_set():
+                ok, error, domain_used = self._run_round(wid, rnd, overrides)
+                if self._stop.is_set():
+                    self._log(f"{logp} 已停止", "warn")
+                    return
+                # 已没有剩余轮次：直接收尾，不再空等一次冷却
+                with self._lock:
+                    has_more = self._next_round < self.target_count
+                if not has_more:
+                    break
+                if ok:
+                    consecutive_fails = 0
+                    cap_cooldowns = 0
+                    wait = random.uniform(self.COOLDOWN_OK_MIN, self.COOLDOWN_OK_MAX)
+                    if not self._cooldown(wid, rnd, wait, "成功"):
                         self._log(f"{logp} 已停止", "warn")
                         return
-                    account = self._read_result(rel_out) if code == 0 else None
-                    error = "" if account else self._read_error(rel_out)
-                    if timed_out and not error:
-                        error = f"注册子进程超过 {int(self.round_timeout)}s 未结束（疑似驱动/浏览器挂死）"
-                    if account is not None:
-                        # 原始 spec 只留在内存给换 token 复用，落盘只写脱敏值
-                        if lease is not None and not lease.direct:
-                            account["_proxy_spec"] = lease.spec
-                            account["proxy"] = lease.masked
-                            account["proxy_mode"] = "pool"
-                        else:
-                            account["_proxy_spec"] = ""
-                            account["proxy"] = ""
-                            account["proxy_mode"] = "direct"
-                        self._persist_result(account)
-                    if code == 0 and account:
-                        with self._lock:
-                            self.success_count += 1
-                            self.output_file = rel_out
-                        # 成功计数以注册结果为准：拿到 sso 才给本轮创邮域名 +1
-                        try:
-                            domain_pool.record_register_success(str(account.get("email") or ""))
-                        except Exception as exc:
-                            self._log(f"{logp} 注册成功落账失败: {exc}", "warn")
-                        with self.file_lock:
-                            self.recent_success.insert(0, account)
-                            del self.recent_success[200:]
-                        self._log(
-                            f"{logp} 成功：{account.get('email')}（sso 已保存 · 节点 {node_label}）",
-                            "success",
-                        )
-                        # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
-                        if self.auto_exchange_token and account.get("sso"):
-                            self._start_token_exchange(account, wid, seq)
-                        else:
-                            self._queue_auto_import(account, logp)
-                    else:
-                        with self._lock:
-                            self.fail_count += 1
-                        detail = f" · {error}" if error else ""
-                        self._log(
-                            f"{logp} 第 {rnd} 轮失败（exit={code}）{detail}", "error"
-                        )
-                finally:
-                    with self._lock:
-                        self._procs.pop(wid, None)
-                    self._release_register_proxy(
-                        lease, ok=account is not None, error=error, logp=logp
+                    continue
+                # 失败：20/40 → 之后 60s，60s 最多 10 次，用完熔断
+                consecutive_fails += 1
+                head = len(self.FAIL_LADDER_HEAD)
+                if consecutive_fails <= head:
+                    wait = float(self.FAIL_LADDER_HEAD[consecutive_fails - 1])
+                elif cap_cooldowns < self.FAIL_LADDER_CAP_MAX:
+                    cap_cooldowns += 1
+                    wait = self.FAIL_LADDER_CAP
+                else:
+                    msg = (
+                        f"连续失败 {consecutive_fails} 次（60s 冷却已用满 "
+                        f"{self.FAIL_LADDER_CAP_MAX} 次），熔断停止任务"
+                        + (f" · 最后失败：{error}" if error else "")
                     )
+                    self._log(f"{logp} {msg}", "error")
+                    with self._lock:
+                        self.error_message = msg
+                    break
+                detail = f" · {error}" if error else ""
+                if not self._cooldown(
+                    wid,
+                    rnd,
+                    wait,
+                    f"失败（连续第 {consecutive_fails} 次）{detail}",
+                ):
+                    self._log(f"{logp} 已停止", "warn")
+                    return
         except Exception as exc:
             with self._lock:
                 self.error_message = str(exc)
@@ -715,6 +622,206 @@ class RegisterRunner:
                 )
             if finalize:
                 self._finalize(seq)
+
+    def _run_round(self, wid: int, rnd: int, overrides: dict) -> tuple[bool, str, str]:
+        """跑一轮注册：租节点 → 起子进程 → 落账域名成败。
+
+        返回 ``(ok, error, domain_used)``；``domain_used`` 是本轮实际
+        使用的池内域名（优先注册结果里的 email_domain，失败时取最后一个
+        创邮尝试域名），用于把成败记到具体域名上。
+        """
+        logp = f"[W{wid}]"
+        lease, skipped = self._lease_register_proxy(wid, rnd)
+        if skipped:
+            self._release_register_proxy(lease, ok=False, error="", logp=logp)
+            with self._lock:
+                self.fail_count += 1
+            msg = "第 {0} 轮跳过：代理池没有可用节点（占用/冷却/停用）".format(rnd)
+            self._log(f"{logp} {msg}", "warn")
+            return False, msg, ""
+        round_env = dict(overrides)
+        # 旧单代理变量一律不参与注册，节点只由代理池租约决定
+        for legacy in ("GROK_PROXY", "DEBUG_PROXY"):
+            round_env.pop(legacy, None)
+        if lease is not None and not lease.direct:
+            # 子进程按账号拿节点：注册浏览器 + 收码邮箱都锁同一出口
+            round_env["GROK_REGISTER_PROXY"] = lease.spec
+            node_label = lease.masked
+        else:
+            round_env.pop("GROK_REGISTER_PROXY", None)
+            node_label = "直连（代理池为空）"
+        # cloudflare_temp + 域名池非空时，按池子随机结果下发候选队列：
+        # 子进程逐域尝试，结果回写 JSON，本进程持久计数（成功/失败/冷却垫底）
+        round_env.pop("EMAIL_DOMAIN_QUEUE", None)
+        try:
+            if resolved_email_config(dict(os.environ))["provider"] == "cloudflare_temp":
+                queue = domain_pool.pick_domains()
+                if queue:
+                    round_env["EMAIL_DOMAIN_QUEUE"] = ",".join(queue)
+        except Exception as exc:
+            self._log(f"{logp} 域名随机队列生成失败，本轮走默认创邮: {exc}", "warn")
+        self._log(
+            f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}",
+            "info",
+        )
+        rel_out = f"register_sso/ui_{uuid.uuid4().hex}.json"
+        cmd = [
+            sys.executable,
+            "-m",
+            "g.ui_register",
+            "--headless",
+            "--window",
+            "1500x950",
+            "--out",
+            rel_out,
+        ]
+        account: dict | None = None
+        code = -1
+        error = ""
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(BASE_DIR),
+                env=self._env(round_env),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                # 独立进程组：超时/停止时 killpg 连 Camoufox/Firefox 一起清掉
+                start_new_session=True,
+            )
+            with self._lock:
+                self._procs[wid] = proc
+            # 日志搬运放独立线程：主线程才能用带超时的 wait 轮询兜底
+            # （否则子进程静默挂死时 for-line 读 stdout 会永远阻塞，
+            # 驱动进程崩溃后的"卡死"正是这种形态）
+            def _pump(p: subprocess.Popen = proc) -> None:
+                assert p.stdout is not None
+                for raw in p.stdout:
+                    line = raw.rstrip("\n")
+                    if line.startswith("[ui-register] "):
+                        line = line[len("[ui-register] "):]
+                    if line:
+                        self._log(f"{logp} {line}", "info")
+
+            pump = threading.Thread(target=_pump, daemon=True, name=f"{logp}-pump")
+            pump.start()
+            round_deadline = (
+                time.time() + self.round_timeout if self.round_timeout > 0 else None
+            )
+            timed_out = False
+            while True:
+                try:
+                    code = proc.wait(timeout=1.0)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                if round_deadline is not None and time.time() > round_deadline:
+                    timed_out = True
+                    self._log(
+                        f"{logp} 第 {rnd} 轮超过 {int(self.round_timeout)}s 未结束，"
+                        "判定子进程挂死，强制终止整棵进程树",
+                        "error",
+                    )
+                    _kill_process_tree(proc)
+                    code = proc.wait()
+                    break
+            pump.join(timeout=5)
+            # 无论本轮成败，都先把逐域名创邮结果落账到域名池（失败连击/冷却）
+            attempts = self._read_domain_attempts(rel_out)
+            for attempt in attempts:
+                try:
+                    domain_pool.record_create_result(
+                        str(attempt.get("domain") or ""),
+                        bool(attempt.get("ok")),
+                        str(attempt.get("message") or ""),
+                    )
+                except Exception as exc:
+                    self._log(f"{logp} 域名计数落账失败: {exc}", "warn")
+            if self._stop.is_set():
+                self._log(f"{logp} 已停止", "warn")
+                return False, "已停止", ""
+            account = self._read_result(rel_out) if code == 0 else None
+            error = "" if account else self._read_error(rel_out)
+            if timed_out and not error:
+                error = f"注册子进程超过 {int(self.round_timeout)}s 未结束（疑似驱动/浏览器挂死）"
+            # 本轮实际使用的池域名：成功轮看注册邮箱后缀，
+            # 失败轮退回最后一个创邮尝试域名（邮箱建出来但注册挂掉的轮次）
+            domain_used = ""
+            if account is not None:
+                domain_used = str(account.get("email_domain") or "")
+            elif attempts:
+                domain_used = str(attempts[-1].get("domain") or "")
+            if not domain_used and account is not None:
+                domain_used = str(account.get("email") or "")
+            if account is not None:
+                # 原始 spec 只留在内存给换 token 复用，落盘只写脱敏值
+                if lease is not None and not lease.direct:
+                    account["_proxy_spec"] = lease.spec
+                    account["proxy"] = lease.masked
+                    account["proxy_mode"] = "pool"
+                else:
+                    account["_proxy_spec"] = ""
+                    account["proxy"] = ""
+                    account["proxy_mode"] = "direct"
+                self._persist_result(account)
+            if code == 0 and account:
+                with self._lock:
+                    self.success_count += 1
+                    self.output_file = rel_out
+                # 成功计数以注册结果为准：拿到 sso 才给本轮创邮域名 +1
+                counts = None
+                try:
+                    counts = domain_pool.record_register_success(
+                        domain_used or str(account.get("email") or "")
+                    )
+                except Exception as exc:
+                    self._log(f"{logp} 注册成功落账失败: {exc}", "warn")
+                with self.file_lock:
+                    self.recent_success.insert(0, account)
+                    del self.recent_success[200:]
+                counts_text = (
+                    " · 域名 {0} 累计 成功 {1[0]} / 失败 {1[1]}".format(domain_used, counts)
+                    if counts
+                    else ""
+                )
+                self._log(
+                    f"{logp} 第 {rnd}/{self.target_count} 轮 True · 成功："
+                    f"{account.get('email')}（sso 已保存 · 节点 {node_label}）{counts_text}",
+                    "success",
+                )
+                # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
+                if self.auto_exchange_token and account.get("sso"):
+                    self._start_token_exchange(account, wid, self._run_seq)
+                else:
+                    self._queue_auto_import(account, logp)
+                return True, "", domain_used
+            with self._lock:
+                self.fail_count += 1
+            # 失败也把注册失败记到实际使用的域名上（此前失败永远是 0/0）
+            counts = None
+            if domain_used:
+                try:
+                    counts = domain_pool.record_register_failure(domain_used, error)
+                except Exception as exc:
+                    self._log(f"{logp} 注册失败落账失败: {exc}", "warn")
+            counts_text = (
+                " · 域名 {0} 累计 成功 {1[0]} / 失败 {1[1]}".format(domain_used, counts)
+                if counts
+                else ""
+            )
+            detail = f" · {error}" if error else ""
+            self._log(
+                f"{logp} 第 {rnd}/{self.target_count} 轮 False（exit={code}）{detail}{counts_text}",
+                "error",
+            )
+            return False, error, domain_used
+        finally:
+            with self._lock:
+                self._procs.pop(wid, None)
+            self._release_register_proxy(
+                lease, ok=account is not None, error=error, logp=logp
+            )
 
     def _finalize(self, seq: int) -> None:
         """所有 worker 与后台换 token 都结束后收尾（每批只执行一次）。"""
@@ -3372,13 +3479,8 @@ def start():
         return jsonify({"ok": False, "message": "注册数量必须是整数"}), 400
     if target < 1 or target > 1000:
         return jsonify({"ok": False, "message": "注册数量范围 1-1000"}), 400
-    workers = body.get("workers", 3)
-    try:
-        workers = int(workers)
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "并发进程数必须是整数"}), 400
-    if workers < 1 or workers > 8:
-        return jsonify({"ok": False, "message": "并发进程数范围 1-8"}), 400
+    # 单进程模式：忽略前端传入的并发数，固定 1 个注册进程
+    workers = 1
 
     cfg_env = read_env_file()
     if "auto_exchange" in body:
@@ -3409,7 +3511,7 @@ def start():
             "message": "邮箱配置不可用：" + "；".join(email_errors) + "。请前往「邮箱配置」。",
         }), 400
 
-    logs.emit(f"注册路径: ui_register（{workers} 进程并行，目标 {target} 个）", "info")
+    logs.emit(f"注册路径: ui_register（单进程，目标 {target} 个）", "info")
     result = runner.start(target=target, workers=workers, env_overrides=cfg_env)
     code = 200 if result.get("ok") else 409
     return jsonify(result), code

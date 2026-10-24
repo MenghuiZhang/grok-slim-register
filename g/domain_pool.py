@@ -7,6 +7,7 @@ for the application's current single-process, multi-threaded deployment.
 from __future__ import annotations
 
 import json
+import random
 import re
 import threading
 
@@ -47,7 +48,6 @@ class DomainPool:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._lock = threading.RLock()
-        self._cursor = 0
         self._data = {"version": 1, "domains": []}
         self.reload()
 
@@ -205,7 +205,6 @@ class DomainPool:
                     disabled += 1
                 ordered.append(row)
             self._data["domains"] = ordered
-            self._cursor = 0
             self._save_locked()
         return {
             "added": added,
@@ -308,25 +307,21 @@ class DomainPool:
             return [x["domain"] for x in self._data["domains"] if x["status"] == "enabled"]
 
     def pick_domains(self) -> list[str]:
-        """轮换选出本轮创邮候选队列。
+        """随机打乱启用域名，生成本轮创邮候选队列。
 
-        游标在启用域名间推进，保证跨轮/跨 worker 轮换起点；
-        冷却中的域名垫底（按冷却到期时间排序），全部冷却时仍兜底返回，
-        只影响优先级、不做停用隔离。
+        顺序每轮随机（不再是游标轮换），冷却中的域名垫底（按冷却到期
+        时间排序）；全部冷却时仍兜底返回，只影响优先级、不做停用隔离。
         """
         with self._lock:
             rows = [x for x in self._data["domains"] if x["status"] == "enabled"]
             if not rows:
                 return []
-            start = self._cursor % len(rows)
-            self._cursor = (start + 1) % len(rows)
-            ordered = rows[start:] + rows[:start]
-            now = time.time()
-            fresh = [x["domain"] for x in ordered if float(x.get("cooldown_until") or 0) <= now]
+            fresh = [x["domain"] for x in rows if float(x.get("cooldown_until") or 0) <= time.time()]
             cooling = sorted(
-                (x for x in ordered if float(x.get("cooldown_until") or 0) > now),
+                (x for x in rows if float(x.get("cooldown_until") or 0) > time.time()),
                 key=lambda x: float(x.get("cooldown_until") or 0),
             )
+            random.shuffle(fresh)
             return fresh + [x["domain"] for x in cooling]
 
     def record_create_result(self, domain: str, ok: bool, message: str = "") -> None:
@@ -354,10 +349,11 @@ class DomainPool:
                 self._event(row, "CREATE_FAIL", row["last_failure_message"])
             self._save_locked()
 
-    def record_register_success(self, domain: str, message: str = "注册成功") -> None:
+    def record_register_success(self, domain: str, message: str = "注册成功") -> int:
         """整轮注册拿到 sso 后计一次成功：success_count +1 并清零连击/冷却。
 
         参数可直接传注册邮箱地址：按池内域名后缀反查归属，匹配不到则忽略。
+        返回该域名最新的 (success_count, failure_count)；域名不在池内返回 None。
         """
         name = str(domain or "").strip().lower().rstrip(".")
         with self._lock:
@@ -371,12 +367,48 @@ class DomainPool:
             else:
                 row = self._entry_by_name(name)
             if row is None:
-                return
+                return None
             row["success_count"] = int(row.get("success_count") or 0) + 1
             row["consecutive_failures"] = 0
             row["cooldown_until"] = 0.0
             self._event(row, "REGISTER_OK", message)
             self._save_locked()
+            return int(row["success_count"]), int(row["failure_count"])
+
+    def record_register_failure(self, domain: str, message: str = "注册失败") -> int | None:
+        """整轮注册失败时给实际使用的域名记 failure_count +1。
+
+        之前只有创邮失败才计数，邮箱能建出来但注册失败的轮次落不到
+        任何域名上，前端「成功 / 失败」列一直是 0。参数可传邮箱地址，
+        按池内域名后缀反查归属，匹配不到则忽略。
+        返回该域名最新的 (success_count, failure_count)。
+        """
+        name = str(domain or "").strip().lower().rstrip(".")
+        with self._lock:
+            row = None
+            if "@" in name:
+                suffix = name.rsplit("@", 1)[-1]
+                row = next(
+                    (x for x in self._data["domains"] if x["domain"] == suffix),
+                    None,
+                )
+            else:
+                row = self._entry_by_name(name)
+            if row is None:
+                return None
+            row["failure_count"] = int(row.get("failure_count") or 0) + 1
+            self._event(row, "REGISTER_FAIL", str(message or "注册失败")[:160])
+            self._save_locked()
+            return int(row["success_count"]), int(row["failure_count"])
+
+    def domain_counts(self, domain: str) -> tuple[int, int] | None:
+        """返回域名当前累计 (成功, 失败)；域名不在池内返回 None。"""
+        name = str(domain or "").strip().lower().rstrip(".")
+        with self._lock:
+            row = self._entry_by_name(name)
+            if row is None:
+                return None
+            return int(row.get("success_count") or 0), int(row.get("failure_count") or 0)
 
     def update(self, domain_id: str, values: dict[str, Any]) -> dict[str, Any]:
         with self._lock:

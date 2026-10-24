@@ -1054,7 +1054,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ]
         if queue and service.provider_name == "cloudflare_temp":
             attempts: list[dict[str, Any]] = []
-            log(f"域名轮换队列（{len(queue)} 个）：{' -> '.join(queue)}")
+            log(f"创邮候选域名 {len(queue)} 个，逐域随机尝试")
             for domain in queue:
                 log(f"创建临时邮箱（域名 {domain}）…")
                 try:
