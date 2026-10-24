@@ -1,7 +1,7 @@
 """Persistent Cloudflare Temp base-domain pool.
 
-The pool is deliberately separate from email provider credentials so automatic
-isolation can take effect while a registration batch is running.  It is safe
+The pool is deliberately separate from email provider credentials so rotation
+and failure counting keep working across registration rounds.  It is safe
 for the application's current single-process, multi-threaded deployment.
 """
 from __future__ import annotations
@@ -13,12 +13,15 @@ import threading
 from filelock import FileLock
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 
 MAX_DOMAINS = 10_000
+# 创邮连续失败 N 次后冷却一段时间：冷却域名只在轮换队列里垫底，
+# 不做停用/隔离，任何一次成功即清零。
+CREATE_FAIL_COOLDOWN_THRESHOLD = 3
+CREATE_FAIL_COOLDOWN_SECONDS = 300
 DOMAIN_RE = re.compile(
     r"^(?=.{1,253}\.?$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.?$",
     re.I,
@@ -40,19 +43,11 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-@dataclass(frozen=True)
-class DomainLease:
-    domain_id: str
-    domain: str
-    logical_id: str
-
-
 class DomainPool:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._lock = threading.RLock()
         self._cursor = 0
-        self._runtime: dict[str, dict[str, int]] = {}
         self._data = {"version": 1, "domains": []}
         self.reload()
 
@@ -82,55 +77,30 @@ class DomainPool:
                 status = str(
                     raw.get("status") or ("enabled" if raw.get("enabled", True) else "disabled")
                 ).lower()
-                if status not in {"enabled", "disabled", "verifying", "archived"}:
-                    status = "enabled"
+                if status not in {"enabled", "disabled"}:
+                    # verifying/archived 是旧隔离机制的遗留状态：
+                    # 复验中回滚启用（与原进程重启清理一致），归档回滚停用
+                    status = "enabled" if status == "verifying" else "disabled"
                 events = list(raw.get("events") or [])[-20:]
-                was_archived = status == "archived"
-                if was_archived:
-                    status = "disabled"
-                    changed = True
-                    events.append({
-                        "at": _now(),
-                        "code": "MIGRATED_FROM_ARCHIVE",
-                        "message": "旧归档状态已迁移为停用",
-                    })
-                # A registration attempt cannot be resumed safely after process restart.
-                if status == "verifying":
-                    status = "enabled"
-                    changed = True
-                    events.append({
-                        "at": _now(),
-                        "code": "REVALIDATION_INTERRUPTED",
-                        "message": "进程重启，未完成复验已清除",
-                    })
                 clean.append({
                     "id": str(raw.get("id") or uuid.uuid4().hex),
                     "domain": domain,
                     "status": status,
-                    "bot_first_failures": int(raw.get("bot_first_failures") or 0),
-                    "bot_second_failures": int(raw.get("bot_second_failures") or 0),
-                    "bot_failures": int(raw.get("bot_failures") or 0),
                     "last_failure_code": str(raw.get("last_failure_code") or ""),
                     "last_failure_message": str(raw.get("last_failure_message") or ""),
                     "last_failure_at": str(raw.get("last_failure_at") or ""),
-                    "disabled_reason": (
-                        "MIGRATED_FROM_ARCHIVE"
-                        if was_archived
-                        else str(raw.get("disabled_reason") or "")
-                    ),
-                    "disabled_at": (
-                        (str(raw.get("disabled_at") or "") or _now())
-                        if was_archived
-                        else str(raw.get("disabled_at") or "")
-                    ),
+                    "disabled_reason": str(raw.get("disabled_reason") or ""),
+                    "disabled_at": str(raw.get("disabled_at") or ""),
                     "email_health": str(raw.get("email_health") or "untested"),
                     "email_health_message": str(raw.get("email_health_message") or "尚未测试"),
                     "email_tested_at": str(raw.get("email_tested_at") or ""),
+                    "success_count": int(raw.get("success_count") or 0),
+                    "failure_count": int(raw.get("failure_count") or 0),
+                    "consecutive_failures": int(raw.get("consecutive_failures") or 0),
+                    "cooldown_until": float(raw.get("cooldown_until") or 0),
                     "events": events[-20:],
-                    "verification_owner": "",
                 })
             self._data = {"version": 1, "domains": clean[:MAX_DOMAINS]}
-            self._runtime = {row["id"]: {"in_use": 0} for row in clean}
             if changed:
                 self._save_locked()
 
@@ -141,9 +111,7 @@ class DomainPool:
             temp = self.path.with_name(self.path.name + ".tmp")
             persisted = {"version": 1, "domains": []}
             for row in self._data["domains"]:
-                item = dict(row)
-                item.pop("verification_owner", None)
-                persisted["domains"].append(item)
+                persisted["domains"].append(dict(row))
             temp.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             temp.replace(self.path)
         try:
@@ -176,7 +144,6 @@ class DomainPool:
                     continue
                 row = self._new_entry(domain, status="enabled")
                 self._data["domains"].append(row)
-                self._runtime[row["id"]] = {"in_use": 0}
                 added += 1
             if added:
                 self._save_locked()
@@ -218,13 +185,11 @@ class DomainPool:
                 row = by_name.get(domain)
                 if row is None:
                     row = self._new_entry(domain, status="enabled")
-                    self._runtime[row["id"]] = {"in_use": 0}
                     added += 1
                 elif row["status"] != "enabled":
                     row["status"] = "enabled"
                     row["disabled_reason"] = ""
                     row["disabled_at"] = ""
-                    row["verification_owner"] = ""
                     self._event(row, "CONFIG_REENABLED", "域名重新进入已保存列表")
                     enabled += 1
                 ordered.append(row)
@@ -232,11 +197,10 @@ class DomainPool:
             for row in self._data["domains"]:
                 if row["domain"] in seen:
                     continue
-                if row["status"] in {"enabled", "verifying"}:
+                if row["status"] == "enabled":
                     row["status"] = "disabled"
                     row["disabled_reason"] = "CONFIG_REMOVED"
                     row["disabled_at"] = _now()
-                    row["verification_owner"] = ""
                     self._event(row, "CONFIG_REMOVED", "域名不在新的已保存列表中")
                     disabled += 1
                 ordered.append(row)
@@ -258,9 +222,6 @@ class DomainPool:
             "id": uuid.uuid4().hex,
             "domain": domain,
             "status": status,
-            "bot_first_failures": 0,
-            "bot_second_failures": 0,
-            "bot_failures": 0,
             "last_failure_code": "",
             "last_failure_message": "",
             "last_failure_at": "",
@@ -269,8 +230,11 @@ class DomainPool:
             "email_health": "untested",
             "email_health_message": "尚未测试",
             "email_tested_at": "",
+            "success_count": 0,
+            "failure_count": 0,
+            "consecutive_failures": 0,
+            "cooldown_until": 0.0,
             "events": [],
-            "verification_owner": "",
         }
 
     def add(self, domains: Iterable[str], *, enabled: bool = False) -> dict[str, Any]:
@@ -297,7 +261,6 @@ class DomainPool:
             for domain in candidates:
                 row = self._new_entry(domain, status="enabled" if enabled else "disabled")
                 self._data["domains"].append(row)
-                self._runtime[row["id"]] = {"in_use": 0}
                 added += 1
             if added:
                 self._save_locked()
@@ -309,10 +272,7 @@ class DomainPool:
         }
 
     def _public(self, row: dict[str, Any]) -> dict[str, Any]:
-        out = dict(row)
-        out.pop("verification_owner", None)
-        out["in_use"] = int(self._runtime.setdefault(row["id"], {"in_use": 0}).get("in_use") or 0)
-        return out
+        return dict(row)
 
     def list_public(self, *, page: int = 1, per_page: int = 50, query: str = "", status: str = "") -> dict[str, Any]:
         with self._lock:
@@ -340,8 +300,6 @@ class DomainPool:
                 "total": len(rows),
                 "enabled": sum(1 for x in rows if x["status"] == "enabled"),
                 "disabled": sum(1 for x in rows if x["status"] == "disabled"),
-                "verifying": sum(1 for x in rows if x["status"] == "verifying"),
-                "busy": sum(int(x.get("in_use") or 0) for x in self._runtime.values()),
             }
 
     def active_domains(self) -> list[str]:
@@ -349,98 +307,76 @@ class DomainPool:
         with self._lock:
             return [x["domain"] for x in self._data["domains"] if x["status"] == "enabled"]
 
-    def acquire(self, logical_id: str) -> Optional[DomainLease]:
-        with self._lock:
-            rows = self._data["domains"]
-            candidates = [x for x in rows if x["status"] == "enabled"]
-            if not candidates:
-                return None
-            ordered = rows[self._cursor:] + rows[:self._cursor]
-            ids = {x["id"] for x in candidates}
-            row = next(x for x in ordered if x["id"] in ids)
-            self._cursor = (rows.index(row) + 1) % max(1, len(rows))
-            self._runtime.setdefault(row["id"], {"in_use": 0})["in_use"] += 1
-            return DomainLease(row["id"], row["domain"], str(logical_id or uuid.uuid4().hex))
+    def pick_domains(self) -> list[str]:
+        """轮换选出本轮创邮候选队列。
 
-    def release(self, lease: Optional[DomainLease]) -> None:
-        if lease is None:
-            return
+        游标在启用域名间推进，保证跨轮/跨 worker 轮换起点；
+        冷却中的域名垫底（按冷却到期时间排序），全部冷却时仍兜底返回，
+        只影响优先级、不做停用隔离。
+        """
         with self._lock:
-            rt = self._runtime.get(lease.domain_id)
-            if rt:
-                rt["in_use"] = max(0, int(rt.get("in_use") or 0) - 1)
+            rows = [x for x in self._data["domains"] if x["status"] == "enabled"]
+            if not rows:
+                return []
+            start = self._cursor % len(rows)
+            self._cursor = (start + 1) % len(rows)
+            ordered = rows[start:] + rows[:start]
+            now = time.time()
+            fresh = [x["domain"] for x in ordered if float(x.get("cooldown_until") or 0) <= now]
+            cooling = sorted(
+                (x for x in ordered if float(x.get("cooldown_until") or 0) > now),
+                key=lambda x: float(x.get("cooldown_until") or 0),
+            )
+            return fresh + [x["domain"] for x in cooling]
 
-    def begin_revalidation(self, lease: DomainLease, *, proxy: str = "", message: str = "risk MARKED") -> bool:
-        with self._lock:
-            row = self._entry(lease.domain_id)
-            if row is None or row["status"] != "enabled":
-                return False
-            row["status"] = "verifying"
-            row["verification_owner"] = lease.logical_id
-            row["bot_first_failures"] += 1
-            row["bot_failures"] += 1
-            row["last_failure_code"] = "BOT_MARKED_FIRST"
-            row["last_failure_message"] = str(message or "risk MARKED")[:160]
-            row["last_failure_at"] = _now()
-            self._event(row, "BOT_MARKED_FIRST", message, proxy=proxy, logical_id=lease.logical_id)
-            self._save_locked()
-            return True
+    def record_create_result(self, domain: str, ok: bool, message: str = "") -> None:
+        """记录一次创邮结果：失败累计连击与冷却垫底；成功只清连击/冷却，不计成功数。
 
-    def complete_revalidation(
-        self,
-        lease: DomainLease,
-        *,
-        clean: bool,
-        proxy: str = "",
-        message: str = "",
-    ) -> None:
+        成功计数以注册结果为准（record_register_success），创邮成功不代表能走通注册。
+        """
+        name = str(domain or "").strip().lower().rstrip(".")
         with self._lock:
-            row = self._entry(lease.domain_id)
+            row = self._entry_by_name(name)
             if row is None:
-                self.release(lease)
                 return
-            owns = row.get("verification_owner") == lease.logical_id
-            if owns:
-                if clean:
-                    if row["status"] == "verifying":
-                        row["status"] = "enabled"
-                    self._event(row, "BOT_REVALIDATION_CLEAN", message or "复验 CLEAN", proxy=proxy, logical_id=lease.logical_id)
-                else:
-                    row["bot_second_failures"] += 1
-                    row["bot_failures"] += 1
-                    row["last_failure_code"] = "BOT_MARKED_SECOND"
-                    row["last_failure_message"] = str(message or "复验 risk MARKED")[:160]
-                    row["last_failure_at"] = _now()
-                    row["status"] = "disabled"
-                    row["disabled_reason"] = "BOT_MARKED_TWICE"
-                    row["disabled_at"] = _now()
-                    self._event(row, "BOT_MARKED_SECOND", message or "复验 risk MARKED", proxy=proxy, logical_id=lease.logical_id)
-                row["verification_owner"] = ""
-                self._save_locked()
-            self.release(lease)
-
-    def abort_revalidation(self, lease: DomainLease, *, code: str, message: str) -> None:
-        with self._lock:
-            row = self._entry(lease.domain_id)
-            if row and row.get("verification_owner") == lease.logical_id:
-                if row["status"] == "verifying":
-                    row["status"] = "enabled"
-                row["verification_owner"] = ""
-                self._event(row, code, message, logical_id=lease.logical_id)
-                self._save_locked()
-            self.release(lease)
-
-    def record_parallel_marked(self, lease: DomainLease, *, proxy: str = "", message: str = "risk MARKED") -> None:
-        with self._lock:
-            row = self._entry(lease.domain_id)
-            if row:
-                row["bot_failures"] += 1
-                row["last_failure_code"] = "BOT_MARKED_PARALLEL"
-                row["last_failure_message"] = str(message or "risk MARKED")[:160]
+            if ok:
+                row["consecutive_failures"] = 0
+                row["cooldown_until"] = 0.0
+                self._event(row, "CREATE_OK", message or "创邮成功")
+            else:
+                row["failure_count"] = int(row.get("failure_count") or 0) + 1
+                row["consecutive_failures"] = int(row.get("consecutive_failures") or 0) + 1
+                row["last_failure_code"] = "CREATE_FAIL"
+                row["last_failure_message"] = str(message or "创邮失败")[:160]
                 row["last_failure_at"] = _now()
-                self._event(row, "BOT_MARKED_PARALLEL", message, proxy=proxy, logical_id=lease.logical_id)
-                self._save_locked()
-            self.release(lease)
+                if int(row["consecutive_failures"]) >= CREATE_FAIL_COOLDOWN_THRESHOLD:
+                    row["cooldown_until"] = time.time() + CREATE_FAIL_COOLDOWN_SECONDS
+                self._event(row, "CREATE_FAIL", row["last_failure_message"])
+            self._save_locked()
+
+    def record_register_success(self, domain: str, message: str = "注册成功") -> None:
+        """整轮注册拿到 sso 后计一次成功：success_count +1 并清零连击/冷却。
+
+        参数可直接传注册邮箱地址：按池内域名后缀反查归属，匹配不到则忽略。
+        """
+        name = str(domain or "").strip().lower().rstrip(".")
+        with self._lock:
+            row = None
+            if "@" in name:
+                suffix = name.rsplit("@", 1)[-1]
+                row = next(
+                    (x for x in self._data["domains"] if x["domain"] == suffix),
+                    None,
+                )
+            else:
+                row = self._entry_by_name(name)
+            if row is None:
+                return
+            row["success_count"] = int(row.get("success_count") or 0) + 1
+            row["consecutive_failures"] = 0
+            row["cooldown_until"] = 0.0
+            self._event(row, "REGISTER_OK", message)
+            self._save_locked()
 
     def update(self, domain_id: str, values: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -453,13 +389,11 @@ class DomainPool:
                     row["status"] = "enabled"
                     row["disabled_reason"] = ""
                     row["disabled_at"] = ""
-                    row["verification_owner"] = ""
                     self._event(row, "MANUAL_ENABLED", "人工启用")
                 else:
                     row["status"] = "disabled"
                     row["disabled_reason"] = "MANUAL"
                     row["disabled_at"] = _now()
-                    row["verification_owner"] = ""
                     self._event(row, "MANUAL_DISABLED", "人工停用")
             self._save_locked()
             return self._public(row)
@@ -486,7 +420,6 @@ class DomainPool:
                 if row["id"] not in wanted:
                     kept.append(row)
                     continue
-                self._runtime.pop(row["id"], None)
                 removed += 1
             self._data["domains"] = kept
             if removed:
@@ -511,21 +444,6 @@ class DomainPool:
             if row is None:
                 raise KeyError(domain_id)
             return self._public(row)
-
-    def recover_incomplete(self, message: str = "任务结束，未完成复验已清除") -> int:
-        """Return interrupted verification rows to enabled without erasing history."""
-        recovered = 0
-        with self._lock:
-            for row in self._data["domains"]:
-                if row["status"] != "verifying":
-                    continue
-                row["status"] = "enabled"
-                row["verification_owner"] = ""
-                self._event(row, "REVALIDATION_INTERRUPTED", message)
-                recovered += 1
-            if recovered:
-                self._save_locked()
-        return recovered
 
 
 _POOLS: dict[str, DomainPool] = {}

@@ -1045,12 +1045,45 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     email = args.email.strip()
     if not email:
-        log("创建临时邮箱…")
-        _, email = service.create_email()
-        if not email:
-            result["error"] = "创建邮箱失败（检查 EMAIL_PROVIDER / 域名池）"
-            log(result["error"])
-            return flush_result(2)
+        # 控制台按域名池轮换下发候选队列：逐域尝试，成功即用；
+        # 每个域名的结果回写 result JSON，由控制台持久计数（成功/失败/冷却垫底）。
+        queue = [
+            part.strip().lower()
+            for part in str(os.getenv("EMAIL_DOMAIN_QUEUE") or "").split(",")
+            if part.strip()
+        ]
+        if queue and service.provider_name == "cloudflare_temp":
+            attempts: list[dict[str, Any]] = []
+            log(f"域名轮换队列（{len(queue)} 个）：{' -> '.join(queue)}")
+            for domain in queue:
+                log(f"创建临时邮箱（域名 {domain}）…")
+                try:
+                    _, email = service.create_email_for_domain(domain)
+                except Exception as exc:
+                    email = None
+                    log(f"域名 {domain} 创邮异常: {exc}")
+                attempts.append({
+                    "domain": domain,
+                    "ok": bool(email),
+                    "message": "" if email else f"域名 {domain} 创邮失败",
+                })
+                if email:
+                    result["email_domain"] = domain
+                    break
+                log(f"域名 {domain} 创邮失败，切换下一域")
+            result["email_domain_attempts"] = attempts
+            if not email:
+                # 域名级失败：措辞避开 _NETWORK_ERROR_HINTS，不把节点按网络失败冷却
+                result["error"] = f"邮箱域名全部不可用（已尝试 {len(attempts)} 个域名）"
+                log(result["error"])
+                return flush_result(2)
+        else:
+            log("创建临时邮箱…")
+            _, email = service.create_email()
+            if not email:
+                result["error"] = "创建邮箱失败（检查 EMAIL_PROVIDER / 域名池）"
+                log(result["error"])
+                return flush_result(2)
     password = args.password or rand_password()
     # 回写：后续 fill_possible_profile / type_password_system 都读 args.password
     args.password = password

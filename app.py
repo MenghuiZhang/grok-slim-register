@@ -429,6 +429,17 @@ class RegisterRunner:
             return ""
         return str(payload.get("error") or "")
 
+    def _read_domain_attempts(self, rel_path: str) -> list[dict]:
+        """读取子进程回写的逐域名创邮结果（含失败轮次）。"""
+        try:
+            payload = json.loads((BASE_DIR / rel_path).read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        rows = payload.get("email_domain_attempts")
+        if not isinstance(rows, list):
+            return []
+        return [x for x in rows if isinstance(x, dict)]
+
     def _lease_register_proxy(self, wid: int, rnd: int):
         """每轮注册前从代理池租一个节点。
 
@@ -510,6 +521,16 @@ class RegisterRunner:
                 else:
                     round_env.pop("GROK_REGISTER_PROXY", None)
                     node_label = "直连（代理池为空）"
+                # cloudflare_temp + 域名池非空时，按池子轮换结果下发候选队列：
+                # 子进程逐域尝试，结果回写 JSON，本进程持久计数（成功/失败/冷却垫底）
+                round_env.pop("EMAIL_DOMAIN_QUEUE", None)
+                try:
+                    if resolved_email_config(dict(os.environ))["provider"] == "cloudflare_temp":
+                        queue = domain_pool.pick_domains()
+                        if queue:
+                            round_env["EMAIL_DOMAIN_QUEUE"] = ",".join(queue)
+                except Exception as exc:
+                    self._log(f"{logp} 域名轮换队列生成失败，本轮走默认创邮: {exc}", "warn")
                 self._log(
                     f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}",
                     "info",
@@ -549,6 +570,16 @@ class RegisterRunner:
                                 line = line[len("[ui-register] "):]
                             self._log(f"{logp} {line}", "info")
                     code = proc.wait()
+                    # 无论本轮成败，都先把逐域名创邮结果落账到域名池（失败连击/冷却）
+                    for attempt in self._read_domain_attempts(rel_out):
+                        try:
+                            domain_pool.record_create_result(
+                                str(attempt.get("domain") or ""),
+                                bool(attempt.get("ok")),
+                                str(attempt.get("message") or ""),
+                            )
+                        except Exception as exc:
+                            self._log(f"{logp} 域名计数落账失败: {exc}", "warn")
                     if self._stop.is_set():
                         self._log(f"{logp} 已停止", "warn")
                         return
@@ -569,6 +600,11 @@ class RegisterRunner:
                         with self._lock:
                             self.success_count += 1
                             self.output_file = rel_out
+                        # 成功计数以注册结果为准：拿到 sso 才给本轮创邮域名 +1
+                        try:
+                            domain_pool.record_register_success(str(account.get("email") or ""))
+                        except Exception as exc:
+                            self._log(f"{logp} 注册成功落账失败: {exc}", "warn")
                         with self.file_lock:
                             self.recent_success.insert(0, account)
                             del self.recent_success[200:]
