@@ -1007,7 +1007,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     proxy_label = ""
     if proxy_spec:
         try:
-            proxy_option, _loopback = build_proxy_option(proxy_spec)
+            proxy_option, proxy_loopback = build_proxy_option(proxy_spec)
             from g.proxy_pool import mask_proxy
 
             proxy_label = mask_proxy(proxy_spec)
@@ -1054,6 +1054,36 @@ def main(argv: Optional[list[str]] = None) -> int:
         if result["ok"] and shot_dir is not None:
             shutil.rmtree(shot_dir, ignore_errors=True)
         return exit_code
+
+    # 节点预检：创邮/起浏览器前先探测出口 IP。探测不通基本等于节点不可用
+    # （限流 429/断连/端口被封），直接失败退出，控制台按网络类失败冷却该
+    # 节点并同轮换节点重跑；避免白创邮箱、白起浏览器死在 page.goto 上。
+    # GROK_NODE_PREFLIGHT=0 可关掉预检（探测端点被封但页面可开的特殊节点）。
+    geo_preflight: Optional[dict] = None
+    if proxy_option and str(os.getenv("GROK_NODE_PREFLIGHT", "1")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        if proxy_loopback:
+            # 本地代理（clash 等）出口是本机公网 IP，探测端点可能拿不到节点地理，
+            # 不做硬预检，保持旧行为
+            log("节点为本地回环代理，跳过预检")
+        else:
+            log("节点预检：探测出口 IP…")
+            try:
+                geo_preflight = probe_proxy_geo(proxy_option)
+            except Exception as exc:
+                geo_preflight = None
+                log(f"节点预检异常: {exc}")
+            if geo_preflight and geo_preflight.get("ip"):
+                log(f"预检通过：出口 {geo_preflight.get('cc')}（{geo_preflight['ip']}）")
+            else:
+                geo_preflight = None
+                result["error"] = "节点出口探测失败（无出口 IP，疑似限流/不可达，应换节点）"
+                log(result["error"])
+                return flush_result(1)
 
     email = args.email.strip()
     if not email:
@@ -1143,12 +1173,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         # 时区/经纬度由本地 MaxMind 库离线查询，启动阶段零网络请求——
         # 不依赖 Camoufox 自带的 IP 探测端点，也不受节点封 80 / 端点 403 影响。
         geo_ip = ""
-        geo = None
+        geo = geo_preflight
         try:
             from camoufox.geolocation import geoip_allowed, get_geolocation
 
             geoip_allowed()  # 缺 camoufox[geoip] 依赖时直接跳过
-            geo = probe_proxy_geo(proxy_option)
+            if geo is None:
+                # 预检被关闭（GROK_NODE_PREFLIGHT=0）时退回此处探测
+                geo = probe_proxy_geo(proxy_option)
             if geo and geo.get("ip"):
                 geo_ip = str(geo["ip"])
                 # 预检：mmdb 缺失/过期会在此触发下载，失败就不进浏览器阶段

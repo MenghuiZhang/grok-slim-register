@@ -215,6 +215,8 @@ _NETWORK_ERROR_HINTS = (
     "创建邮箱失败",
     "未进入验证码页",
     "未出现邮箱输入框",
+    # ui_register 节点预检失败：出口 IP 探测不通，节点大概率限流/不可达
+    "节点出口探测失败",
 )
 
 
@@ -289,6 +291,9 @@ class RegisterRunner:
     FAIL_LADDER_HEAD = (20, 40)  # 连续第 1/2 次失败的冷却
     FAIL_LADDER_CAP = 60.0  # 之后的固定冷却
     FAIL_LADDER_CAP_MAX = 10  # 60s 冷却最多出现次数
+    # 换节点重试时租新节点的最长等待（秒）：池里暂无可切节点就快速放弃重试，
+    # 交给轮间失败冷却梯子按原有节奏走
+    NODE_SWITCH_LEASE_WAIT = 15.0
     # 单轮注册子进程硬超时（秒）。正常一轮 1-3 分钟即可完成；超时意味着
     # 注册子进程或其 Playwright 驱动/浏览器已挂死（如驱动进程崩溃后
     # Python 端仍挂在 wait 上），击杀整棵进程树、本轮记失败并继续下一轮。
@@ -337,6 +342,14 @@ class RegisterRunner:
             self.round_timeout = max(0.0, float(os.getenv("GROK_REGISTER_ROUND_TIMEOUT", str(self.ROUND_TIMEOUT)) or 0))
         except (TypeError, ValueError):
             self.round_timeout = float(self.ROUND_TIMEOUT)
+        # 节点级失败（预检失败/代理 429 等）同轮自动换节点重试的次数：
+        # 重试排除已试节点再租，0 = 关闭换节点重试（保留节点冷却行为）
+        try:
+            self.node_switch_retries = max(
+                0, int(os.getenv("GROK_NODE_SWITCH_RETRIES", "2") or 0)
+            )
+        except (TypeError, ValueError):
+            self.node_switch_retries = 2
 
     def is_running(self) -> bool:
         with self._lock:
@@ -488,7 +501,13 @@ class RegisterRunner:
             return []
         return [x for x in rows if isinstance(x, dict)]
 
-    def _lease_register_proxy(self, wid: int, rnd: int):
+    def _lease_register_proxy(
+        self,
+        wid: int,
+        rnd: int,
+        exclude: set[str] | None = None,
+        wait_timeout: float | None = None,
+    ):
         """每轮注册前从代理池租一个节点。
 
         返回 ``(lease, skipped)``：
@@ -496,6 +515,8 @@ class RegisterRunner:
         - ``lease.direct``：代理池为空，本轮直连（与旧行为一致）
         - ``lease`` 为 None 且 ``skipped=False``：租约异常，本轮直连
         - ``skipped=True``：等待超时/已停止，本轮不注册
+        - ``exclude``：换节点重试时排除已试过的节点 ID
+        - ``wait_timeout``：覆盖默认租约等待（换节点重试用短等待）
         """
         try:
             summary = proxy_pool.summary()
@@ -509,7 +530,10 @@ class RegisterRunner:
                 f"w{wid}-r{rnd}",
                 stop_event=self._stop,
                 wait=True,
-                wait_timeout=self.proxy_lease_wait,
+                wait_timeout=(
+                    self.proxy_lease_wait if wait_timeout is None else wait_timeout
+                ),
+                exclude=exclude,
             )
         except Exception as exc:
             self._log(f"[W{wid}] 代理租约异常，本轮直连: {exc}", "warn")
@@ -626,19 +650,77 @@ class RegisterRunner:
     def _run_round(self, wid: int, rnd: int, overrides: dict) -> tuple[bool, str, str]:
         """跑一轮注册：租节点 → 起子进程 → 落账域名成败。
 
+        节点级失败（预检失败、代理 429 等，见 _looks_like_network_error）
+        时同轮自动换节点重跑：当前节点按网络失败释放进冷却，排除已试节点
+        再租新节点，轮次号与成败计数不变；最多换 self.node_switch_retries 个。
+        非节点级失败（验证码/风控等）与池里无可切节点时不重试。
+
         返回 ``(ok, error, domain_used)``；``domain_used`` 是本轮实际
         使用的池内域名（优先注册结果里的 email_domain，失败时取最后一个
         创邮尝试域名），用于把成败记到具体域名上。
         """
         logp = f"[W{wid}]"
-        lease, skipped = self._lease_register_proxy(wid, rnd)
-        if skipped:
-            self._release_register_proxy(lease, ok=False, error="", logp=logp)
-            with self._lock:
-                self.fail_count += 1
-            msg = "第 {0} 轮跳过：代理池没有可用节点（占用/冷却/停用）".format(rnd)
-            self._log(f"{logp} {msg}", "warn")
-            return False, msg, ""
+        tried_ids: set[str] = set()
+        last_error = ""
+        last_domain = ""
+        for attempt_no in range(1 + max(0, self.node_switch_retries)):
+            lease, skipped = self._lease_register_proxy(
+                wid,
+                rnd,
+                exclude=tried_ids or None,
+                wait_timeout=None if attempt_no == 0 else self.NODE_SWITCH_LEASE_WAIT,
+            )
+            if skipped:
+                if attempt_no == 0:
+                    self._release_register_proxy(lease, ok=False, error="", logp=logp)
+                    with self._lock:
+                        self.fail_count += 1
+                    msg = "第 {0} 轮跳过：代理池没有可用节点（占用/冷却/停用）".format(rnd)
+                    self._log(f"{logp} {msg}", "warn")
+                    return False, msg, ""
+                # 重试租不到节点（唯一节点已被排除/冷却），保留首次失败结果
+                break
+            # 首租异常时按原逻辑直连兜底；重试拿到 direct/None 说明池里
+            # 没有其他可切节点了，不再重试
+            if attempt_no > 0 and (lease is None or getattr(lease, "direct", False)):
+                break
+            ok, error, domain_used = self._run_round_once(
+                wid, rnd, overrides, lease, node_attempt=attempt_no
+            )
+            if ok:
+                return True, "", domain_used
+            if self._stop.is_set():
+                # 与旧行为一致：停止触发的失败不计数
+                return False, error, domain_used
+            last_error, last_domain = error, domain_used
+            if attempt_no >= self.node_switch_retries or not _looks_like_network_error(
+                error
+            ):
+                with self._lock:
+                    self.fail_count += 1
+                return False, error, domain_used
+            if lease is not None and not getattr(lease, "direct", False):
+                tried_ids.add(lease.proxy_id)
+            self._log(
+                f"{logp} 第 {rnd} 轮节点级失败，自动切换节点重试"
+                f"（第 {attempt_no}/{self.node_switch_retries} 次）",
+                "warn",
+            )
+        # 只有重试租不到节点才会走到这里，保留首次失败结果
+        with self._lock:
+            self.fail_count += 1
+        return False, last_error, last_domain
+
+    def _run_round_once(
+        self,
+        wid: int,
+        rnd: int,
+        overrides: dict,
+        lease,
+        node_attempt: int,
+    ) -> tuple[bool, str, str]:
+        """用给定租约执行一次注册子进程（_run_round 的单次尝试）。"""
+        logp = f"[W{wid}]"
         round_env = dict(overrides)
         # 旧单代理变量一律不参与注册，节点只由代理池租约决定
         for legacy in ("GROK_PROXY", "DEBUG_PROXY"):
@@ -660,8 +742,9 @@ class RegisterRunner:
                     round_env["EMAIL_DOMAIN_QUEUE"] = ",".join(queue)
         except Exception as exc:
             self._log(f"{logp} 域名随机队列生成失败，本轮走默认创邮: {exc}", "warn")
+        retry_tag = f"（换节点重试 第{node_attempt}次）" if node_attempt > 0 else ""
         self._log(
-            f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}",
+            f"{logp} 第 {rnd}/{self.target_count} 轮注册开始 · 节点 {node_label}{retry_tag}",
             "info",
         )
         rel_out = f"register_sso/ui_{uuid.uuid4().hex}.json"
@@ -796,9 +879,8 @@ class RegisterRunner:
                 else:
                     self._queue_auto_import(account, logp)
                 return True, "", domain_used
-            with self._lock:
-                self.fail_count += 1
-            # 失败也把注册失败记到实际使用的域名上（此前失败永远是 0/0）
+            # 失败也把注册失败记到实际使用的域名上（此前失败永远是 0/0）；
+            # fail_count 由 _run_round 外层按轮计数，避免换节点重试重复累加
             counts = None
             if domain_used:
                 try:
