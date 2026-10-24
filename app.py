@@ -7,6 +7,7 @@ import json
 import hmac
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -221,6 +222,40 @@ def _looks_like_network_error(message: str) -> bool:
     return any(hint in text for hint in _NETWORK_ERROR_HINTS)
 
 
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """杀掉注册子进程及其浏览器子进程（ui_register → Camoufox/Firefox）。
+
+    Popen 以 start_new_session=True 启动，killpg 能覆盖整棵进程树；
+    先 SIGTERM 给优雅退出机会，顽固时 SIGKILL。兜底 terminate/kill 单进程。
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=10)
+        return
+    except Exception:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+
+
 def _release_token_proxy(lease, ok: bool, message: str = "") -> None:
     if lease is None:
         return
@@ -246,6 +281,11 @@ class RegisterRunner:
     MAX_WORKERS = 8
     # 换 token 单次超时（秒）；device flow 本身还有内部轮询预算
     TOKEN_EXCHANGE_TIMEOUT = 28
+    # 单轮注册子进程硬超时（秒）。正常一轮 1-3 分钟即可完成；超时意味着
+    # 注册子进程或其 Playwright 驱动/浏览器已挂死（如驱动进程崩溃后
+    # Python 端仍挂在 wait 上），击杀整棵进程树、本轮记失败并继续下一轮。
+    # 环境变量 GROK_REGISTER_ROUND_TIMEOUT 可覆盖，0 = 关闭兜底（不建议）。
+    ROUND_TIMEOUT = 420
 
     def __init__(self, log_fn) -> None:
         self._log = log_fn
@@ -285,6 +325,10 @@ class RegisterRunner:
             )
         except (TypeError, ValueError):
             self.proxy_lease_wait = 120.0
+        try:
+            self.round_timeout = max(0.0, float(os.getenv("GROK_REGISTER_ROUND_TIMEOUT", str(self.ROUND_TIMEOUT)) or 0))
+        except (TypeError, ValueError):
+            self.round_timeout = float(self.ROUND_TIMEOUT)
 
     def is_running(self) -> bool:
         with self._lock:
@@ -348,11 +392,7 @@ class RegisterRunner:
             self._stop.set()
             procs = list(self._procs.values())
         for proc in procs:
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
+            _kill_process_tree(proc)
         self._log("已发送停止信号，等待各 worker 当前轮退出…", "warn")
         return {"ok": True, "message": "已发送停止信号", "status": "stopping"}
 
@@ -558,18 +598,46 @@ class RegisterRunner:
                         stderr=subprocess.STDOUT,
                         text=True,
                         bufsize=1,
+                        # 独立进程组：超时/停止时 killpg 连 Camoufox/Firefox 一起清掉
+                        start_new_session=True,
                     )
                     with self._lock:
                         self._procs[wid] = proc
-                    if proc.stdout is not None:
-                        for raw in proc.stdout:
+                    # 日志搬运放独立线程：主线程才能用带超时的 wait 轮询兜底
+                    # （否则子进程静默挂死时 for-line 读 stdout 会永远阻塞，
+                    # 驱动进程崩溃后的"卡死"正是这种形态）
+                    def _pump(p: subprocess.Popen = proc) -> None:
+                        assert p.stdout is not None
+                        for raw in p.stdout:
                             line = raw.rstrip("\n")
-                            if not line:
-                                continue
                             if line.startswith("[ui-register] "):
                                 line = line[len("[ui-register] "):]
-                            self._log(f"{logp} {line}", "info")
-                    code = proc.wait()
+                            if line:
+                                self._log(f"{logp} {line}", "info")
+
+                    pump = threading.Thread(target=_pump, daemon=True, name=f"{logp}-pump")
+                    pump.start()
+                    round_deadline = (
+                        time.time() + self.round_timeout if self.round_timeout > 0 else None
+                    )
+                    timed_out = False
+                    while True:
+                        try:
+                            code = proc.wait(timeout=1.0)
+                            break
+                        except subprocess.TimeoutExpired:
+                            pass
+                        if round_deadline is not None and time.time() > round_deadline:
+                            timed_out = True
+                            self._log(
+                                f"{logp} 第 {rnd} 轮超过 {int(self.round_timeout)}s 未结束，"
+                                "判定子进程挂死，强制终止整棵进程树",
+                                "error",
+                            )
+                            _kill_process_tree(proc)
+                            code = proc.wait()
+                            break
+                    pump.join(timeout=5)
                     # 无论本轮成败，都先把逐域名创邮结果落账到域名池（失败连击/冷却）
                     for attempt in self._read_domain_attempts(rel_out):
                         try:
@@ -585,6 +653,8 @@ class RegisterRunner:
                         return
                     account = self._read_result(rel_out) if code == 0 else None
                     error = "" if account else self._read_error(rel_out)
+                    if timed_out and not error:
+                        error = f"注册子进程超过 {int(self.round_timeout)}s 未结束（疑似驱动/浏览器挂死）"
                     if account is not None:
                         # 原始 spec 只留在内存给换 token 复用，落盘只写脱敏值
                         if lease is not None and not lease.direct:
@@ -4819,9 +4889,47 @@ def download_key(filename):
     return send_from_directory(BASE_DIR / "keys", filename, as_attachment=True)
 
 
+def _check_playwright_patch() -> None:
+    """启动自检：确认 playwright 版本与 FF 驱动 bundle 里的 null-guard 补丁。
+
+    曾出现过"构建期补丁已提交，但运行容器仍是旧镜像"的静默失配（崩溃栈
+    行号对不上固定版本的 bundle 才倒推出来）。这里启动时就地报警，只警告
+    不阻断——本地无 playwright 的环境也要能正常起 Web 控制台。
+    """
+    try:
+        from importlib.metadata import version
+
+        import playwright
+
+        actual = version("playwright")
+        bundle = (
+            Path(playwright.__file__).parent / "driver/package/lib/coreBundle.js"
+        )
+        patched = (
+            "removeChildFramesRecursively(frame) {\n        if (!frame) return;"
+            in bundle.read_text(encoding="utf-8")
+        )
+    except Exception as exc:
+        logs.emit(f"playwright 自检跳过: {exc}", "warn")
+        return
+    if actual != "1.60.0":
+        logs.emit(
+            f"playwright 版本 {actual} != requirements 固定的 1.60.0，"
+            "FF 驱动补丁点可能失配，Turnstile 竞态可能崩掉注册进程",
+            "warn",
+        )
+    if not patched:
+        logs.emit(
+            "playwright FF 驱动缺少 null-guard 补丁（镜像可能构建于补丁之前），"
+            "请 docker compose build 重建镜像",
+            "warn",
+        )
+
+
 def main():
     cfg = read_env_file()
     apply_env_to_process(cfg)
+    _check_playwright_patch()
     host = cfg.get("UI_HOST") or os.getenv("UI_HOST", "127.0.0.1")
     if (os.getenv("RUNNING_IN_DOCKER") or "").strip().lower() in (
         "1",

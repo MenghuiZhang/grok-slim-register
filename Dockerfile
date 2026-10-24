@@ -25,6 +25,8 @@ RUN python -m venv "$VIRTUAL_ENV" \
 # 给 Playwright Firefox 驱动打 null-guard 补丁：Turnstile 跨域 iframe 导航提交
 # 与 frame 销毁竞态会杀死 Node 驱动进程（上游 microsoft/playwright#13444，
 # 1.60.0 仍存在）。补丁失败（版本变化导致目标文本不匹配）会让构建失败。
+# 运行时另有每轮子进程硬超时（GROK_REGISTER_ROUND_TIMEOUT）兜底，驱动再死
+# 也不会卡死 worker。
 COPY docker/patch_playwright_driver.py /tmp/patch_playwright_driver.py
 RUN python /tmp/patch_playwright_driver.py
 
