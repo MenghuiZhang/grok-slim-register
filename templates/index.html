@@ -4,122 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Grok 注册控制台</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            paper: {
-              50: '#fbfaf7',
-              100: '#f4f1ea',
-              200: '#e8e2d6',
-              300: '#d5cdb8',
-            },
-            ink: {
-              700: '#3f3a33',
-              800: '#2a261f',
-              900: '#1a1712',
-            },
-            brand: {
-              50: '#eff8ff',
-              100: '#dbeefe',
-              500: '#2f80ed',
-              600: '#1f6fd6',
-              700: '#1857ab',
-            },
-            leaf: {
-              500: '#1f9d63',
-              600: '#178451',
-            },
-            sun: {
-              500: '#d97706',
-            },
-            rose: {
-              500: '#e11d48',
-            }
-          },
-          fontFamily: {
-            display: ['"Fraunces"', 'Georgia', 'serif'],
-            sans: ['"Manrope"', 'system-ui', 'sans-serif'],
-            mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
-          },
-          boxShadow: {
-            soft: '0 10px 30px rgba(42, 38, 31, 0.06)',
-            card: '0 1px 0 rgba(255,255,255,0.8) inset, 0 12px 32px rgba(42, 38, 31, 0.07)',
-          }
-        }
-      }
-    }
-  </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+{% include '_head.html' %}
   <style>
-    body {
-      background:
-        radial-gradient(900px 420px at 0% 0%, rgba(47, 128, 237, 0.10), transparent 55%),
-        radial-gradient(700px 380px at 100% 10%, rgba(31, 157, 99, 0.08), transparent 50%),
-        linear-gradient(180deg, #fbfaf7 0%, #f3f0e8 100%);
-      color: #1a1712;
-    }
-    .panel {
-      background: rgba(255, 255, 255, 0.86);
-      border: 1px solid rgba(42, 38, 31, 0.08);
-      box-shadow: 0 12px 32px rgba(42, 38, 31, 0.06);
-      backdrop-filter: blur(10px);
-    }
-    .field {
-      width: 100%;
-      border-radius: 0.9rem;
-      border: 1.5px solid #ddd5c6;
-      background: #fff;
-      padding: 0.7rem 0.9rem;
-      font-size: 0.9rem;
-      color: #1a1712;
-      outline: none;
-      transition: border-color .15s, box-shadow .15s, background .15s;
-    }
-    .field:hover { border-color: #c9bea8; }
-    .field:focus {
-      border-color: #2f80ed;
-      box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
-      background: #fff;
-    }
-    .field:disabled {
-      background: #f4f1ea;
-      color: #8a8376;
-      cursor: not-allowed;
-    }
-    .field-label {
-      display: block;
-      margin-bottom: 0.4rem;
-      font-size: 0.75rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      color: #6b6458;
-    }
-    /* custom select */
+    /* Custom select */
     .c-select { position: relative; }
     .c-select-btn {
       width: 100%;
+      height: 2.5rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
-      border-radius: 0.9rem;
-      border: 1.5px solid #ddd5c6;
+      border-radius: 0.65rem;
+      border: 1.5px solid #dcd4c4;
       background: #fff;
-      padding: 0.7rem 0.9rem;
-      font-size: 0.9rem;
-      color: #1a1712;
+      padding: 0 0.8rem;
+      font-size: 0.84rem;
+      font-weight: 500;
+      color: #181511;
       text-align: left;
       transition: border-color .15s, box-shadow .15s;
     }
-    .c-select-btn:hover { border-color: #c9bea8; }
+    .c-select-btn:hover:not(:disabled) { border-color: #c8beab; }
     .c-select-btn.open, .c-select-btn:focus {
-      border-color: #2f80ed;
-      box-shadow: 0 0 0 4px rgba(47, 128, 237, 0.12);
+      border-color: #2574eb;
+      box-shadow: 0 0 0 3.5px rgba(37, 116, 235, 0.13);
       outline: none;
     }
     .c-select-btn:disabled {
@@ -135,27 +44,30 @@
       border-radius: 0.9rem;
       border: 1px solid #e5ddcf;
       background: #fff;
-      box-shadow: 0 16px 40px rgba(42, 38, 31, 0.12);
+      box-shadow: 0 16px 40px rgba(34, 30, 24, 0.13);
       padding: 0.35rem;
       display: none;
       max-height: 14rem;
       overflow-y: auto;
     }
-    .c-select-menu.open { display: block; }
+    .c-select-menu.open { display: block; animation: fadeSlide .15s ease-out; }
     .c-select-option {
       width: 100%;
       text-align: left;
       border-radius: 0.65rem;
-      padding: 0.65rem 0.75rem;
-      font-size: 0.875rem;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.85rem;
       color: #2a261f;
       background: transparent;
+      border: 0;
+      cursor: pointer;
+      transition: background .12s, color .12s;
     }
-    .c-select-option:hover { background: #eff8ff; color: #1857ab; }
+    .c-select-option:hover { background: #eff8ff; color: #164ea8; }
     .c-select-option.active {
       background: #dbeefe;
-      color: #1857ab;
-      font-weight: 600;
+      color: #164ea8;
+      font-weight: 700;
     }
     .chev {
       width: 1rem; height: 1rem;
@@ -163,64 +75,48 @@
       transition: transform .15s;
       flex-shrink: 0;
     }
-    .c-select-btn.open .chev { transform: rotate(180deg); color: #2f80ed; }
-
-    .btn {
-      border-radius: 0.9rem;
-      padding: 0.7rem 1rem;
-      font-size: 0.875rem;
-      font-weight: 700;
-      transition: transform .12s, filter .12s, box-shadow .12s, background .12s;
-    }
-    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
-    .btn-primary {
-      background: linear-gradient(135deg, #2f80ed, #1f9d63);
-      color: #fff;
-      box-shadow: 0 8px 20px rgba(47, 128, 237, 0.2);
-    }
-    .btn-primary:hover:not(:disabled) { filter: brightness(1.04); transform: translateY(-1px); }
-    .btn-danger {
-      background: linear-gradient(135deg, #e11d48, #f43f5e);
-      color: #fff;
-      box-shadow: 0 8px 20px rgba(225, 29, 72, 0.18);
-    }
-    .btn-danger:hover:not(:disabled) { filter: brightness(1.04); transform: translateY(-1px); }
-    .btn-ghost {
-      background: #fff;
-      border: 1.5px solid #ddd5c6;
-      color: #2a261f;
-    }
-    .btn-ghost:hover:not(:disabled) { border-color: #2f80ed; color: #1857ab; background: #f8fbff; }
+    .c-select-btn.open .chev { transform: rotate(180deg); color: #2574eb; }
 
     .progress-bar {
-      background: linear-gradient(90deg, #2f80ed, #1f9d63 70%);
-      transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+      background: linear-gradient(90deg, #2574eb 0%, #0ea5e9 45%, #169c62 100%);
+      background-size: 200% 100%;
+      transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      box-shadow: 0 2px 10px rgba(37, 116, 235, 0.3);
     }
-    .log-line { animation: fadeSlide .22s ease-out; }
+    .log-line {
+      animation: fadeSlide .2s ease-out;
+      padding: 0.18rem 0.4rem;
+      border-radius: 0.4rem;
+      word-break: break-word;
+    }
+    .log-line:hover {
+      background: rgba(34, 30, 24, 0.035);
+    }
     @keyframes fadeSlide {
       from { opacity: 0; transform: translateY(3px); }
       to { opacity: 1; transform: translateY(0); }
     }
     @keyframes pulse-dot {
       0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: .5; transform: scale(.85); }
+      50% { opacity: .45; transform: scale(.85); }
     }
     .pulse-live { animation: pulse-dot 1.4s ease-in-out infinite; }
     #logBox, #postLogBox, #successList, #keysList { scrollbar-width: thin; scrollbar-color: #d5cdb8 transparent; }
-    /* 日志双栏：不靠 Tailwind xl 断点（很多窗口 <1280 时 col-span 不生效，宽死活不变） */
+
+    /* 日志双栏：不靠 Tailwind xl 断点 */
     .log-split {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 0.75rem;
+      gap: 0.9rem;
       min-width: 0;
     }
     @media (min-width: 1024px) {
-      /* 主流程 : 右侧 ≈ 1.85 : 1（主区明显更宽） */
       .log-split {
         grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
       }
     }
     #logBox, #postLogBox { width: 100%; min-width: 0; }
+
     /* 配置页：平铺分组，面板内滚动 */
     #tab-config {
       max-height: min(72vh, 42rem);
@@ -229,29 +125,30 @@
       scrollbar-color: #d5cdb8 transparent;
     }
     #tab-config .cfg-block {
-      border: 1px solid rgba(26, 23, 18, 0.08);
-      border-radius: 0.9rem;
+      border: 1px solid rgba(26, 23, 18, 0.085);
+      border-radius: 0.95rem;
       background: #fff;
-      padding: 0.85rem 0.95rem 0.95rem;
+      padding: 0.9rem 1rem 1rem;
       display: grid;
       gap: 0.65rem;
+      box-shadow: 0 2px 6px rgba(34, 30, 24, 0.02);
     }
     #tab-config .cfg-title {
       font-size: 0.8125rem;
       font-weight: 700;
-      color: #1a1712;
+      color: #181511;
       margin: 0;
-      padding-bottom: 0.15rem;
+      padding-bottom: 0.25rem;
       border-bottom: 1px solid rgba(26, 23, 18, 0.06);
     }
     #tab-config .field-label { margin-bottom: 0.2rem; }
-    #tab-config .field { padding: 0.55rem 0.7rem; }
+    #tab-config .field { padding: 0.55rem 0.75rem; }
     #tab-config .hint {
       margin-top: 0.2rem;
-      font-size: 10px;
-      line-height: 1.35;
-      color: rgba(63, 58, 51, 0.45);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      color: rgba(63, 58, 51, 0.55);
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
     }
     .secret-wrap { position: relative; }
     .secret-wrap .field { padding-right: 2.6rem; }
@@ -272,99 +169,166 @@
       cursor: pointer;
       border-radius: 0.4rem;
     }
-    .secret-wrap .toggle-eye:hover { color: #1857ab; background: rgba(24, 87, 171, 0.06); }
+    .secret-wrap .toggle-eye:hover { color: #164ea8; background: rgba(24, 87, 171, 0.06); }
     .secret-wrap .toggle-eye svg { width: 1rem; height: 1rem; pointer-events: none; }
+
+    .tab-btn {
+      transition: all 0.15s ease;
+      font-weight: 600;
+    }
     .tab-btn.active {
       background: #fff;
-      color: #1857ab;
-      box-shadow: 0 1px 3px rgba(42,38,31,.08);
+      color: #164ea8;
+      box-shadow: 0 2px 6px rgba(34, 30, 24, 0.07), inset 0 0 0 1px rgba(34, 30, 24, 0.05);
       font-weight: 700;
+    }
+
+    /* Terminal chrome window header */
+    .term-window {
+      border-radius: 1rem;
+      overflow: hidden;
+      border: 1px solid rgba(34, 30, 24, 0.09);
+      background: #fcfbf9;
+      box-shadow: inset 0 1px 0 #fff, 0 4px 14px rgba(34, 30, 24, 0.03);
+    }
+    .term-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.55rem 0.85rem;
+      background: #f3efe6;
+      border-bottom: 1px solid rgba(34, 30, 24, 0.07);
+    }
+    .term-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .term-dots i {
+      width: 0.52rem;
+      height: 0.52rem;
+      border-radius: 9999px;
+      display: inline-block;
     }
   </style>
 </head>
 <body class="h-full font-sans antialiased">
-  <div class="min-h-full">
-    <!-- Header -->
-    <header class="sticky top-0 z-30 border-b border-ink-900/5 bg-paper-50/90 backdrop-blur-md">
-      <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <div class="h-11 w-11 rounded-2xl bg-gradient-to-br from-brand-500 to-leaf-500 text-white grid place-items-center shadow-soft font-display text-lg font-bold">G</div>
-          <div>
-            <h1 class="font-display text-2xl font-bold tracking-tight text-ink-900">Grok 注册控制台</h1>
-            <p class="text-xs text-ink-700/60 font-mono">配置 · 启动 · 实时日志 · Key 下载</p>
+  <div class="min-h-full flex flex-col">
+    <!-- Unified Global Navigation Header -->
+    {% include '_nav.html' %}
+
+    <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-6 space-y-5">
+      <!-- Symmetrical 5-Card KPI Stats Grid -->
+      <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 sm:gap-4">
+        <article class="stat-card col-span-2 sm:col-span-1">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-ink-700/60 font-bold">已创邮箱</p>
+            <span class="h-7 w-7 rounded-lg bg-leaf-50 text-leaf-600 border border-leaf-500/15 grid place-items-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </span>
+          </div>
+          <p id="statSuccess" class="mt-1.5 font-display text-3xl font-bold text-leaf-600 tabular-nums">0</p>
+          <p class="text-xs text-ink-700/55 font-mono mt-1">目标 <span id="statTarget" class="font-semibold text-ink-800">0</span></p>
+        </article>
+
+        <article class="stat-card">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-ink-700/60 font-bold">过程失败</p>
+            <span class="h-7 w-7 rounded-lg bg-rose-50 text-rose-500 border border-rose-500/15 grid place-items-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            </span>
+          </div>
+          <p id="statFail" class="mt-1.5 font-display text-3xl font-bold text-rose-500 tabular-nums">0</p>
+          <p class="text-xs text-ink-700/55 font-mono mt-1">废号尝试 · 非目标</p>
+        </article>
+
+        <article class="stat-card">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-ink-700/60 font-bold">已换 Token</p>
+            <span class="h-7 w-7 rounded-lg bg-brand-50 text-brand-600 border border-brand-500/15 grid place-items-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            </span>
+          </div>
+          <p id="statToken" class="mt-1.5 font-display text-3xl font-bold text-brand-600 tabular-nums">0</p>
+          <p class="text-xs text-ink-700/55 font-mono mt-1">失败 <span id="statTokenFail" class="font-semibold text-rose-500">0</span></p>
+        </article>
+
+        <article class="stat-card">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-ink-700/60 font-bold">平均速度</p>
+            <span class="h-7 w-7 rounded-lg bg-brand-50 text-brand-600 border border-brand-500/15 grid place-items-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </span>
+          </div>
+          <p id="statAvg" class="mt-1.5 font-display text-3xl font-bold text-brand-600 tabular-nums">—</p>
+          <p class="text-xs text-ink-700/55 font-mono mt-1">秒 / 邮箱</p>
+        </article>
+
+        <article class="stat-card">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-[11px] uppercase tracking-[0.14em] text-ink-700/60 font-bold">已用时间</p>
+            <span class="h-7 w-7 rounded-lg bg-sun-50 text-sun-500 border border-sun-500/20 grid place-items-center shrink-0">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </span>
+          </div>
+          <p id="statElapsed" class="mt-1.5 font-display text-3xl font-bold text-sun-500 tabular-nums">0s</p>
+          <p class="text-xs text-ink-700/55 font-mono mt-1">单进程串行注册</p>
+        </article>
+      </section>
+
+      <!-- Progress & Pipeline Banner -->
+      <section class="panel rounded-2xl p-4 sm:p-5">
+        <div class="flex items-center justify-between gap-4 mb-2.5 flex-wrap">
+          <div class="flex items-center gap-2.5">
+            <h2 class="font-display font-bold text-ink-900 text-base">任务总进度</h2>
+            <span class="text-xs font-mono text-ink-700/65 bg-paper-100 border border-ink-900/5 rounded-full px-2.5 py-0.5">
+              成功 <span id="statEmailCreateInline" class="text-leaf-600 font-bold">0</span> / 目标 <span id="statTargetInline" class="text-ink-900 font-bold">0</span>
+            </span>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-xs font-mono text-ink-700/60 hidden sm:inline">输出：<span id="outputFile" class="text-ink-800 font-medium">—</span></span>
+            <span id="progressLabel" class="font-mono text-sm font-bold text-brand-600 bg-brand-50 border border-brand-500/15 px-2.5 py-0.5 rounded-full tabular-nums">0%</span>
           </div>
         </div>
-        <div id="statusBadge" class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-mono border border-ink-900/10 bg-white shadow-sm">
-          <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-400"></span>
-          <span id="statusText" class="text-ink-700">IDLE</span>
-        </div>
-      </div>
-    </header>
-
-    <main class="max-w-[1680px] mx-auto px-4 sm:px-6 py-6 space-y-5">
-      <!-- Stats -->
-      <section class="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
-        <article class="panel rounded-2xl p-4">
-          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已创邮箱</p>
-          <p id="statSuccess" class="mt-1 font-display text-3xl font-bold text-leaf-600">0</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">目标 <span id="statTarget">0</span></p>
-        </article>
-        <article class="panel rounded-2xl p-4">
-          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">过程失败</p>
-          <p id="statFail" class="mt-1 font-display text-3xl font-bold text-rose-500">0</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">废号尝试 · 非目标</p>
-        </article>
-        <article class="panel rounded-2xl p-4">
-          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已换 Token</p>
-          <p id="statToken" class="mt-1 font-display text-3xl font-bold text-brand-600">0</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">失败 <span id="statTokenFail">0</span></p>
-        </article>
-        <article class="panel rounded-2xl p-4">
-          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">平均速度</p>
-          <p id="statAvg" class="mt-1 font-display text-3xl font-bold text-brand-600">—</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">秒 / 邮箱</p>
-        </article>
-        <article class="panel rounded-2xl p-4">
-          <p class="text-[11px] uppercase tracking-[0.16em] text-ink-700/50 font-semibold">已用时间</p>
-          <p id="statElapsed" class="mt-1 font-display text-3xl font-bold text-sun-500">0s</p>
-          <p class="text-xs text-ink-700/50 font-mono mt-1">单进程串行注册</p>
-        </article>
-      </section>
-
-      <!-- Progress -->
-      <section class="panel rounded-2xl p-4 sm:p-5">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="font-display font-semibold text-ink-900">进度</h2>
-          <span id="progressLabel" class="font-mono text-sm font-semibold text-brand-600">0%</span>
-        </div>
-        <div class="h-3 rounded-full bg-paper-200 overflow-hidden">
+        <div class="h-3 rounded-full bg-paper-200/90 overflow-hidden p-0.5 border border-ink-900/5 shadow-inner">
           <div id="progressBar" class="progress-bar h-full w-0 rounded-full"></div>
         </div>
-        <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs font-mono text-ink-700/60">
-          <span>成功 <span id="statEmailCreateInline" class="text-leaf-600">0</span> / 目标 <span id="statTargetInline" class="text-ink-800">0</span></span>
-          <span>输出：<span id="outputFile" class="text-ink-800">—</span></span>
-        </div>
-        <div id="pipelineBox" class="mt-3 rounded-xl bg-paper-100 border border-ink-900/5 px-3 py-2.5 text-[11px] font-mono text-ink-700/70 leading-relaxed">
-          <div class="text-[10px] uppercase tracking-[0.14em] text-ink-700/40 font-semibold mb-1">注册流水线</div>
-          <div id="pipelineSteps" class="text-ink-800">空闲 · UI 注册：临时邮箱 → 验证码 → 资料页 → Turnstile 点击 → SSO</div>
+        <div id="pipelineBox" class="mt-3.5 rounded-xl bg-gradient-to-r from-paper-100/90 via-white/80 to-paper-100/90 border border-ink-900/8 px-3.5 py-2.5 text-xs font-mono text-ink-700/75 flex items-center gap-3 flex-wrap">
+          <span class="inline-flex items-center gap-1.5 rounded-md bg-ink-900 text-paper-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] font-semibold shrink-0">
+            <span class="h-1.5 w-1.5 rounded-full bg-leaf-500"></span>
+            流水线状态
+          </span>
+          <div id="pipelineSteps" class="text-ink-800 font-medium min-w-0 flex-1 truncate">空闲 · UI 注册：临时邮箱 → 验证码 → 资料页 → Turnstile 点击 → SSO</div>
         </div>
       </section>
 
-      <!-- 左控制 / 右日志：大屏日志区更宽，外层由 max-w-[1680px] 控宽而非 7xl -->
+      <!-- Main Split Workspace: Left Control / Right Dual Terminal -->
       <div class="grid lg:grid-cols-12 gap-5 min-w-0">
         <!-- Left column -->
         <section class="lg:col-span-4 space-y-4 min-w-0">
-          <!-- Tabs: run / config -->
+          <!-- Tabs: run / config / keys -->
           <div class="panel rounded-2xl overflow-hidden">
-            <div class="flex gap-1 p-1.5 bg-paper-100 border-b border-ink-900/5">
-              <button type="button" data-tab="run" class="tab-btn active flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">运行</button>
-              <button type="button" data-tab="config" class="tab-btn flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">配置</button>
-              <button type="button" data-tab="keys" class="tab-btn flex-1 rounded-xl px-3 py-2 text-sm text-ink-700/70">Keys</button>
+            <div class="flex gap-1 p-1.5 bg-paper-100/90 border-b border-ink-900/8">
+              <button type="button" data-tab="run" class="tab-btn active flex-1 rounded-xl px-3 py-2 text-xs sm:text-sm text-ink-700/75 inline-flex items-center justify-center gap-1.5">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span>运行控制</span>
+              </button>
+              <button type="button" data-tab="config" class="tab-btn flex-1 rounded-xl px-3 py-2 text-xs sm:text-sm text-ink-700/75 inline-flex items-center justify-center gap-1.5">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>系统配置</span>
+              </button>
+              <button type="button" data-tab="keys" class="tab-btn flex-1 rounded-xl px-3 py-2 text-xs sm:text-sm text-ink-700/75 inline-flex items-center justify-center gap-1.5">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>Keys 导出</span>
+              </button>
             </div>
 
             <!-- RUN PANEL -->
             <div id="tab-run" class="p-5 space-y-4">
-              <h2 class="font-display font-semibold text-ink-900">启动参数</h2>
+              <div class="flex items-center justify-between">
+                <h2 class="font-display font-bold text-ink-900 text-base">启动参数</h2>
+                <span class="text-[11px] font-mono text-ink-700/50">单进程稳态引擎</span>
+              </div>
               <form id="startForm" class="space-y-4">
                 <div>
                   <label class="field-label">并发进程</label>
@@ -373,7 +337,7 @@
                       <span class="value">1 进程（单进程模式）</span>
                     </button>
                   </div>
-                  <p class="mt-1.5 text-[11px] text-ink-700/50">单进程串行注册，轮间自动冷却</p>
+                  <p class="mt-1.5 text-[11px] text-ink-700/50">单进程串行注册，轮间自动冷却以保障通过率</p>
                 </div>
                 <div>
                   <label class="field-label" for="target">创建邮箱目标</label>
@@ -385,38 +349,71 @@
                     <div class="c-select-menu" role="listbox"></div>
                     <input type="hidden" id="target" name="target" value="100" />
                   </div>
-                  <p class="mt-1.5 text-[11px] text-ink-700/50">也可在下方自定义数量</p>
+                  <p class="mt-1.5 text-[11px] text-ink-700/50">也可在下方输入任意自定义数量</p>
                   <input id="targetCustom" type="number" min="1" max="100000" placeholder="自定义数量，例如 25"
-                         class="field mt-2" />
+                         class="field mt-1.5" />
                 </div>
-                <label class="flex items-start gap-2 text-xs text-ink-700/70 cursor-pointer select-none">
-                  <input id="autoExchange" type="checkbox" checked class="mt-0.5 rounded border-paper-300 text-brand-500 focus:ring-brand-500/30" />
-                  <span>注册后自动换 token<small class="block text-[11px] text-ink-700/45">SSO → access_token（device flow，复用代理节点 · 串行），结果回写并供导入复用</small></span>
+                <label class="flex items-center gap-3 rounded-xl border border-ink-900/10 bg-paper-50/90 p-3 text-xs text-ink-700/80 cursor-pointer select-none hover:border-brand-500/40 transition-colors">
+                  <input id="autoExchange" type="checkbox" checked class="h-4 w-4 shrink-0 m-0 rounded border-paper-300 text-brand-500 focus:ring-brand-500/30 accent-brand-600" />
+                  <span>
+                    <strong class="font-bold text-ink-900">注册后自动换 Token</strong>
+                    <small class="block text-[11px] text-ink-700/55 mt-0.5 leading-relaxed">SSO → access_token（device flow，复用代理节点 · 串行），结果回写并供导入中心直接复用</small>
+                  </span>
                 </label>
                 <div class="grid grid-cols-2 gap-3 pt-1">
-                  <button id="btnStart" type="submit" class="btn btn-primary">启动注册</button>
-                  <button id="btnStop" type="button" class="btn btn-danger" disabled>停止</button>
+                  <button id="btnStart" type="submit" class="btn btn-primary py-2.5 text-sm">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span>启动注册</span>
+                  </button>
+                  <button id="btnStop" type="button" class="btn btn-danger-solid py-2.5 text-sm" disabled>
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                    <span>停止任务</span>
+                  </button>
                 </div>
               </form>
               <p id="formMessage" class="text-xs font-mono min-h-[1.1rem] text-ink-700/50"></p>
 
-              <div class="rounded-xl bg-paper-100 border border-ink-900/5 p-3 text-xs text-ink-700/70 space-y-1.5">
-                <div class="flex justify-between gap-2"><span>邮箱服务</span><span id="envWorker" class="font-mono text-ink-800 truncate max-w-[58%] text-right">—</span></div>
-                <div class="flex justify-between gap-2"><span>邮箱状态</span><span id="envMailDomain" class="font-mono text-ink-800">—</span></div>
-                <div class="flex justify-between gap-2"><span>邮箱配置</span><a href="/email-settings" id="envToken" class="font-mono text-brand-600">打开</a></div>
-                <div class="flex justify-between gap-2"><span>验证码</span><span id="envYes" class="font-mono text-ink-800">—</span></div>
-                <div class="flex justify-between gap-2"><span>注册代理</span><a href="/proxy-settings" id="envProxy" class="font-mono text-brand-600 truncate max-w-[58%] text-right">打开</a></div>
-                <div class="flex justify-between gap-2"><span>导入服务</span><a href="/import-services" class="font-mono text-brand-600">打开</a></div>
+              <!-- Environment Status Overview Card -->
+              <div class="rounded-2xl bg-paper-100/85 border border-ink-900/8 p-3.5 text-xs text-ink-700/75 space-y-2">
+                <div class="flex items-center justify-between pb-1.5 border-b border-ink-900/5">
+                  <span class="text-[11px] uppercase tracking-[0.12em] font-bold text-ink-700/50">运行环境概览</span>
+                  <span class="text-[10px] font-mono text-ink-700/45">实时同步</span>
+                </div>
+                <div class="flex justify-between items-center gap-2">
+                  <span class="text-ink-700/65">当前邮箱服务</span>
+                  <span id="envWorker" class="font-mono font-semibold text-ink-800 truncate max-w-[58%] text-right">—</span>
+                </div>
+                <div class="flex justify-between items-center gap-2">
+                  <span class="text-ink-700/65">邮箱就绪状态</span>
+                  <span id="envMailDomain" class="font-mono font-semibold text-ink-800">—</span>
+                </div>
+                <div class="flex justify-between items-center gap-2">
+                  <span class="text-ink-700/65">人机验证模式</span>
+                  <span id="envYes" class="font-mono text-ink-800">—</span>
+                </div>
+                <div class="pt-1.5 border-t border-ink-900/5 grid grid-cols-3 gap-2">
+                  <a href="/email-settings" id="envToken" class="flex flex-col items-center justify-center rounded-xl bg-white border border-ink-900/8 py-2 px-2 hover:border-brand-500 hover:bg-brand-50/30 transition-colors no-underline group">
+                    <span class="text-[10px] text-ink-700/55">邮箱配置</span>
+                    <span class="font-mono text-[11px] font-bold text-brand-600 group-hover:underline mt-0.5">去设置 →</span>
+                  </a>
+                  <a href="/proxy-settings" class="flex flex-col items-center justify-center rounded-xl bg-white border border-ink-900/8 py-2 px-2 hover:border-brand-500 hover:bg-brand-50/30 transition-colors no-underline group">
+                    <span class="text-[10px] text-ink-700/55">注册代理</span>
+                    <span id="envProxy" class="font-mono text-[11px] font-bold text-brand-600 truncate max-w-full group-hover:underline mt-0.5">打开</span>
+                  </a>
+                  <a href="/import-services" class="flex flex-col items-center justify-center rounded-xl bg-white border border-ink-900/8 py-2 px-2 hover:border-brand-500 hover:bg-brand-50/30 transition-colors no-underline group">
+                    <span class="text-[10px] text-ink-700/55">导入服务</span>
+                    <span class="font-mono text-[11px] font-bold text-brand-600 group-hover:underline mt-0.5">去管理 →</span>
+                  </a>
+                </div>
               </div>
-
             </div>
 
             <!-- CONFIG PANEL：平铺分组 + 内部滚动 -->
             <div id="tab-config" class="p-4 space-y-3 hidden">
               <div class="flex items-center justify-between gap-2">
                 <div>
-                  <h2 class="font-display font-semibold text-ink-900 text-sm">环境配置</h2>
-                  <p class="text-[10px] text-ink-700/45 font-mono">写入 .env</p>
+                  <h2 class="font-display font-bold text-ink-900 text-sm">环境配置</h2>
+                  <p class="text-[10px] text-ink-700/50 font-mono">持久化写入 .env</p>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <button type="button" id="btnReloadConfig" class="btn btn-ghost text-[11px] px-2.5 py-1">重载</button>
@@ -431,7 +428,7 @@
                     <h3 class="cfg-title">邮箱服务</h3>
                     <p class="hint">邮箱凭据、服务切换、域名池与连接测试已迁移到独立页面。</p>
                   </div>
-                  <a href="/email-settings" class="btn btn-primary text-[11px] px-3 py-1.5 shrink-0">打开邮箱配置</a>
+                  <a href="/email-settings" class="btn btn-primary text-[11px] px-3 py-1.5 shrink-0 no-underline">打开邮箱配置</a>
                 </div>
                 <div class="hidden" aria-hidden="true">
                 <!-- 1. 邮箱 -->
@@ -523,8 +520,8 @@
                     </div>
                     <button type="button" id="btnClearCaptures" class="btn btn-danger text-[11px] px-2.5 py-1 shrink-0">清理抓包</button>
                   </div>
-                  <details class="rounded-xl border border-ink-900/5 bg-paper-50/70 px-3 py-2">
-                    <summary class="cursor-pointer text-[11px] font-semibold text-ink-700/70 select-none">高级限制</summary>
+                  <details class="rounded-xl border border-ink-900/8 bg-paper-50/70 px-3 py-2">
+                    <summary class="cursor-pointer text-[11px] font-semibold text-ink-700/75 select-none">高级限制</summary>
                     <div class="grid grid-cols-2 gap-2 pt-2">
                       <div>
                         <label class="field-label" for="cfgLogMaxMb">单份日志上限（MB）</label>
@@ -559,11 +556,14 @@
             <!-- KEYS PANEL -->
             <div id="tab-keys" class="p-5 space-y-3 hidden">
               <div class="flex items-center justify-between">
-                <h2 class="font-display font-semibold text-ink-900">Key 文件</h2>
+                <div>
+                  <h2 class="font-display font-bold text-ink-900 text-base">Key 产物文件</h2>
+                  <p class="text-[11px] text-ink-700/50 font-mono">可直接下载或送入导入中心</p>
+                </div>
                 <button id="btnRefreshKeys" type="button" class="btn btn-ghost text-xs px-3 py-1.5">刷新</button>
               </div>
               <ul id="keysList" class="space-y-2 max-h-80 overflow-y-auto text-xs font-mono">
-                <li class="text-ink-700/50">暂无文件</li>
+                <li class="text-ink-700/50 py-6 text-center">暂无文件</li>
               </ul>
             </div>
           </div>
@@ -572,59 +572,72 @@
         <!-- Right: logs (主流程 | risk/token/NSFW) -->
         <section class="lg:col-span-8 space-y-4 min-w-0">
           <div class="panel rounded-2xl p-5">
-            <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
-              <h2 class="font-display font-semibold text-ink-900">实时日志</h2>
+            <div class="flex items-center justify-between mb-3.5 gap-3 flex-wrap">
+              <div class="flex items-center gap-2.5">
+                <h2 class="font-display font-bold text-ink-900 text-base">实时运行日志</h2>
+                <span id="logConnBadge" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-paper-100 text-ink-700/50">连接中…</span>
+              </div>
               <div class="flex items-center gap-3">
-                <span id="logConnBadge" class="text-[11px] font-mono text-ink-700/40">连接中…</span>
-                <label class="inline-flex items-center gap-1.5 text-xs text-ink-700/60 font-mono cursor-pointer select-none">
-                  <input id="autoScroll" type="checkbox" checked class="rounded border-paper-300 text-brand-500 focus:ring-brand-500/30" />
+                <label class="inline-flex items-center gap-1.5 text-xs text-ink-700/70 font-mono cursor-pointer select-none bg-paper-100/80 px-2.5 py-1 rounded-lg border border-ink-900/5">
+                  <input id="autoScroll" type="checkbox" checked class="rounded border-paper-300 text-brand-500 focus:ring-brand-500/30 accent-brand-600" />
                   自动滚动
                 </label>
-                <button id="btnClearLogs" type="button" class="text-xs font-mono text-ink-700/55 hover:text-sun-500">清空</button>
+                <button id="btnClearLogs" type="button" class="btn btn-ghost text-xs px-2.5 py-1 font-mono">清空日志</button>
               </div>
             </div>
+
             <div class="log-split">
-              <!-- 主流程（约 65% 宽，CSS fr 写死，不依赖 xl:col-span） -->
-              <div class="min-w-0">
-                <div class="flex items-center justify-between mb-1.5 px-0.5">
-                  <span class="text-[10px] uppercase tracking-[0.14em] font-semibold text-ink-700/45">主流程</span>
-                  <span class="text-[10px] font-mono text-ink-700/35">建邮 · camoufox · signup · SSO</span>
+              <!-- 主流程（约 65% 宽） -->
+              <div class="min-w-0 term-window">
+                <div class="term-header">
+                  <div class="flex items-center gap-2">
+                    <span class="term-dots"><i class="bg-rose-400"></i><i class="bg-amber-400"></i><i class="bg-emerald-400"></i></span>
+                    <span class="text-[11px] uppercase tracking-[0.12em] font-bold text-ink-800">主流程引擎</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-ink-700/50">建邮 · camoufox · signup · SSO</span>
                 </div>
-                <div id="logBox" class="h-[28rem] overflow-y-auto rounded-xl bg-paper-50 border border-ink-900/5 p-3 font-mono text-[12px] leading-relaxed space-y-1">
-                  <div class="text-ink-700/40">等待主流程日志...</div>
+                <div id="logBox" class="h-[28rem] overflow-y-auto p-3 font-mono text-[12px] leading-relaxed space-y-0.5">
+                  <div class="text-ink-700/40 py-8 text-center">等待主流程日志...</div>
                 </div>
               </div>
+
               <!-- Risk / Token / NSFW（约 35%） -->
-              <div class="min-w-0">
-                <div class="flex items-center justify-between mb-1.5 px-0.5">
-                  <span class="text-[10px] uppercase tracking-[0.14em] font-semibold text-brand-600/80">Risk · Token · NSFW</span>
-                  <span class="text-[10px] font-mono text-ink-700/35">异步后置</span>
+              <div class="min-w-0 term-window" style="background: rgba(239, 248, 255, 0.35);">
+                <div class="term-header" style="background: rgba(219, 238, 254, 0.55);">
+                  <div class="flex items-center gap-2">
+                    <span class="h-2 w-2 rounded-full bg-brand-500"></span>
+                    <span class="text-[11px] uppercase tracking-[0.12em] font-bold text-brand-700">Risk · Token · NSFW</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-brand-700/65">异步后置</span>
                 </div>
-                <div id="postLogBox" class="h-[28rem] overflow-y-auto rounded-xl bg-brand-50/40 border border-brand-500/10 p-3 font-mono text-[12px] leading-relaxed space-y-1">
-                  <div class="text-ink-700/40">risk · 换 token · 协议/NSFW 输出在这里</div>
+                <div id="postLogBox" class="h-[28rem] overflow-y-auto p-3 font-mono text-[12px] leading-relaxed space-y-0.5">
+                  <div class="text-ink-700/40 py-8 text-center">risk · 换 token · 协议/NSFW 输出在这里</div>
                 </div>
               </div>
             </div>
           </div>
 
           <div class="panel rounded-2xl p-5">
-            <div class="flex items-center justify-between gap-3 mb-3">
+            <div class="flex items-center justify-between gap-3 mb-3.5 flex-wrap">
               <div>
-                <h2 class="font-display font-semibold text-ink-900">最近成功</h2>
-                <p class="text-[11px] text-ink-700/45 mt-0.5 font-mono">导入状态请前往独立导入中心</p>
+                <h2 class="font-display font-bold text-ink-900 text-base">最近成功账号</h2>
+                <p class="text-[11px] text-ink-700/55 mt-0.5 font-mono">CLEAN 门禁通过后记录于此 · 批量分发请前往独立导入中心</p>
               </div>
-              <a href="/import-services" class="btn btn-primary text-xs px-3 py-1.5 shrink-0">打开导入中心</a>
+              <a href="/import-services" class="btn btn-primary text-xs px-3.5 py-2 shrink-0 no-underline">
+                <span>打开导入中心</span>
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </a>
             </div>
             <div id="successList" class="max-h-64 overflow-y-auto space-y-2 font-mono text-xs">
-              <p class="text-ink-700/45">成功账号会显示在这里</p>
+              <p class="text-ink-700/45 py-6 text-center">成功账号会显示在这里</p>
             </div>
           </div>
         </section>
       </div>
     </main>
 
-    <footer class="max-w-[1680px] mx-auto px-4 sm:px-6 pb-8 pt-1 text-center text-[11px] font-mono text-ink-700/40">
-      仅本机访问 · 也可使用 <span class="text-ink-700/60">python grok.py</span> 命令行
+    <footer class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 pb-8 pt-2 text-center text-[11px] font-mono text-ink-700/45">
+      Grok 注册工作台 · 仅本机安全访问 · 也可使用 <code class="px-1.5 py-0.5 rounded bg-paper-200/70 text-ink-800">python grok.py</code> 命令行模式
     </footer>
   </div>
 
@@ -706,17 +719,17 @@
       if (!el) return;
       el.textContent = text || (ok ? '已连接' : '断线');
       el.className = ok
-        ? 'text-[11px] font-mono text-leaf-600'
-        : 'text-[11px] font-mono text-rose-500';
+        ? 'text-[11px] font-mono font-semibold px-2.5 py-0.5 rounded-full bg-leaf-50 text-leaf-600 border border-leaf-500/20'
+        : 'text-[11px] font-mono font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-500 border border-rose-500/20';
     }
 
     const $ = (id) => document.getElementById(id);
 
     const levelClass = {
       info: 'text-ink-800',
-      success: 'text-leaf-600',
-      warn: 'text-sun-500',
-      error: 'text-rose-500',
+      success: 'text-leaf-600 font-medium',
+      warn: 'text-sun-600',
+      error: 'text-rose-500 font-medium',
     };
 
     const statusStyle = {
@@ -888,7 +901,7 @@
     /* ---------- Helpers ---------- */
     function setMessage(el, msg, ok = true) {
       el.textContent = msg || '';
-      el.className = `text-xs font-mono min-h-[1.1rem] ${ok ? 'text-leaf-600' : 'text-rose-500'}`;
+      el.className = `text-xs font-mono min-h-[1.1rem] ${ok ? 'text-leaf-600 font-semibold' : 'text-rose-500 font-semibold'}`;
     }
 
     function escapeHtml(s) {
@@ -953,7 +966,7 @@
         }
         const row = document.createElement('div');
         row.className = `log-line ${levelClass[e.level] || levelClass.info}`;
-        row.innerHTML = `<span class="text-ink-700/35">[${e.time}]</span> ${escapeHtml(e.message)}`;
+        row.innerHTML = `<span class="text-ink-700/35 select-none">[${e.time}]</span> ${escapeHtml(e.message)}`;
         box.appendChild(row);
         state[afterKey] = Math.max(state[afterKey], e.id || 0);
         added += 1;
@@ -1031,47 +1044,47 @@
       if (data.env) {
         const emailOk = !!data.env.email_configured;
         $('envWorker').textContent = data.env.email_provider_label || data.env.email_provider || '未配置';
-        $('envWorker').className = `font-mono truncate max-w-[58%] text-right ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
+        $('envWorker').className = `font-mono font-semibold truncate max-w-[58%] text-right ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
         $('envMailDomain').textContent = emailOk ? '可用' : '待配置';
-        $('envMailDomain').className = `font-mono ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
+        $('envMailDomain').className = `font-mono font-semibold ${emailOk ? 'text-leaf-600' : 'text-rose-500'}`;
         $('envYes').textContent = 'checkbox 点击';
         $('envYes').className = 'font-mono text-ink-800';
         if ($('envProxy')) {
           const ps = data.proxy_pool || data.env.proxy_pool || {};
           $('envProxy').textContent = Number(ps.total || 0) ? `${ps.enabled || 0}/${ps.total} 条` : '直连 · 配置';
-          $('envProxy').className = 'font-mono truncate max-w-[58%] text-right text-brand-600';
+          $('envProxy').className = 'font-mono text-[11px] font-bold truncate max-w-full text-brand-600 group-hover:underline mt-0.5';
         }
       }
 
       const list = $('successList');
       const items = data.recent_success || [];
       if (!items.length) {
-        list.innerHTML = '<p class="text-ink-700/45">成功账号会显示在这里</p>';
+        list.innerHTML = '<p class="text-ink-700/45 py-6 text-center">成功账号会显示在这里</p>';
       } else {
         list.innerHTML = items.map(it => {
           const ssoBadge = it.sso
-            ? '<span class="text-leaf-600 font-semibold">sso✓</span>'
-            : '<span class="text-ink-700/35">sso·</span>';
+            ? '<span class="badge ok">sso✓</span>'
+            : '<span class="badge">sso·</span>';
           const tokenBadge = it.has_token
-            ? '<span class="text-brand-600 font-semibold">token✓</span>'
+            ? '<span class="badge ok">token✓</span>'
             : (it.token_status === 'failed'
-              ? '<span class="text-sun-500 font-semibold">token✗</span>'
+              ? '<span class="badge warn">token✗</span>'
               : (it.token_status === 'imported'
-                ? '<span class="text-ink-700/40">已导入</span>'
-                : '<span class="text-ink-700/35">token…</span>'));
+                ? '<span class="badge">已导入</span>'
+                : '<span class="badge">token…</span>'));
           return `
-          <div class="flex items-center justify-between gap-3 rounded-xl border border-ink-900/5 bg-paper-50 px-3 py-2">
+          <div class="flex items-center justify-between gap-3 rounded-xl border border-ink-900/8 bg-white hover:border-brand-500/30 transition-colors px-3.5 py-2.5 shadow-sm">
             <div class="min-w-0">
-              <div class="text-leaf-600 truncate font-semibold">${escapeHtml(it.email || '')}</div>
-              <div class="text-ink-700/45 truncate">${escapeHtml(it.sso_preview || '')}</div>
-              <div class="text-[10px] text-ink-700/40 truncate">${escapeHtml(it.email_provider || '')}${it.email_domain ? ' · ' + escapeHtml(it.email_domain) : ''}</div>
+              <div class="text-leaf-600 truncate font-bold text-[13px]">${escapeHtml(it.email || '')}</div>
+              <div class="text-ink-700/50 truncate text-[11px] mt-0.5">${escapeHtml(it.sso_preview || '')}</div>
+              <div class="text-[10px] text-ink-700/45 truncate mt-0.5">${escapeHtml(it.email_provider || '')}${it.email_domain ? ' · ' + escapeHtml(it.email_domain) : ''}</div>
             </div>
             <div class="shrink-0 text-right space-y-1">
-              <div class="flex items-center justify-end gap-2">
+              <div class="flex items-center justify-end gap-1.5">
                 ${ssoBadge}
                 ${tokenBadge}
               </div>
-              <div class="text-ink-700/35">${escapeHtml(it.time || '')}</div>
+              <div class="text-[11px] text-ink-700/40">${escapeHtml(it.time || '')}</div>
             </div>
           </div>`;
         }).join('');
@@ -1269,18 +1282,18 @@
         const data = await fetchJSON('/api/keys');
         const list = $('keysList');
         if (!data.files || !data.files.length) {
-          list.innerHTML = '<li class="text-ink-700/50">暂无文件</li>';
+          list.innerHTML = '<li class="text-ink-700/50 py-6 text-center">暂无文件</li>';
           return;
         }
         list.innerHTML = data.files.map(f => `
-          <li class="flex items-center justify-between gap-2 rounded-xl border border-ink-900/5 bg-paper-50 px-3 py-2">
+          <li class="flex items-center justify-between gap-2 rounded-xl border border-ink-900/8 bg-white hover:border-brand-500/30 transition-colors px-3.5 py-2.5 shadow-sm">
             <div class="min-w-0">
-              <div class="truncate text-ink-900 font-semibold">${escapeHtml(f.name)}</div>
-              <div class="text-ink-700/45">${f.count} keys · ${Math.round(f.size / 1024 * 10) / 10} KB</div>
+              <div class="truncate text-ink-900 font-bold">${escapeHtml(f.name)}</div>
+              <div class="text-ink-700/50 text-[11px] mt-0.5">${f.count} keys · ${Math.round(f.size / 1024 * 10) / 10} KB</div>
             </div>
-            <div class="shrink-0 flex items-center gap-3">
-              <a class="text-brand-600 hover:underline font-semibold" href="/import-services">导入中心</a>
-              <a class="text-brand-600 hover:underline font-semibold" href="/${escapeHtml(f.path)}" download>下载</a>
+            <div class="shrink-0 flex items-center gap-2">
+              <a class="btn btn-ghost text-[11px] px-2.5 py-1 no-underline" href="/import-services">导入中心</a>
+              <a class="btn btn-primary text-[11px] px-2.5 py-1 no-underline" href="/${escapeHtml(f.path)}" download>下载</a>
             </div>
           </li>`).join('');
       } catch (e) {
@@ -1477,9 +1490,9 @@
     $('btnClearLogs').addEventListener('click', async () => {
       try {
         await fetchJSON('/api/logs/clear', { method: 'POST' });
-        $('logBox').innerHTML = '<div class="text-ink-700/40">主流程日志已清空</div>';
+        $('logBox').innerHTML = '<div class="text-ink-700/40 py-8 text-center">主流程日志已清空</div>';
         if ($('postLogBox')) {
-          $('postLogBox').innerHTML = '<div class="text-ink-700/40">Risk/换 token 日志已清空</div>';
+          $('postLogBox').innerHTML = '<div class="text-ink-700/40 py-8 text-center">Risk/换 token 日志已清空</div>';
         }
         state.afterId = 0;
         state.postAfterId = 0;

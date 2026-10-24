@@ -1,37 +1,644 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>注册代理</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>注册代理池 · Grok 注册工作台</title>
+{% include '_head.html' %}
   <style>
-    :root{--ink:#172033;--muted:#6b7280;--line:#dfe4ec;--paper:#f5f7fb;--card:#fff;--brand:#5b5bd6;--ok:#16845b;--bad:#d9465f;--warn:#b7791f}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}a{color:var(--brand);text-decoration:none}.shell{max-width:1280px;margin:auto;padding:28px 20px 60px}.top,.row,.actions,.pager{display:flex;align-items:center;justify-content:space-between;gap:12px}.top{margin-bottom:20px}.top h1{margin:0;font-size:25px}.top p,.sub{margin:4px 0 0;color:var(--muted)}.summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:16px}.stat,.panel{background:var(--card);border:1px solid var(--line);border-radius:16px}.stat{padding:14px}.stat b{display:block;font-size:23px}.stat span{font-size:12px;color:var(--muted)}.panel{padding:18px;margin-bottom:16px}.panel h2{margin:0;font-size:17px}.settings{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.field{display:flex;flex-direction:column;gap:5px}.field label{font-size:12px;font-weight:700}.field input,.field select,.field textarea{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff;color:var(--ink);width:100%}.check{display:flex;align-items:center;gap:8px}.check input{width:18px;height:18px}.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700}.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.danger{color:var(--bad)}.btn:disabled{opacity:.45}.toolbar{display:grid;grid-template-columns:minmax(180px,1fr) 160px auto;gap:10px;margin:14px 0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:980px}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:11px;text-transform:uppercase;color:var(--muted);background:#fafbfe}td small{display:block;color:var(--muted)}.badge{display:inline-block;border-radius:99px;padding:2px 8px;font-size:11px;background:#eef0f5}.badge.ok{background:#e5f6ef;color:var(--ok)}.badge.bad{background:#fdebed;color:var(--bad)}.badge.warn{background:#fff4d8;color:var(--warn)}.message{min-height:22px;color:var(--muted);margin-top:10px}.message.ok{color:var(--ok)}.message.bad{color:var(--bad)}.empty{padding:28px;text-align:center;color:var(--muted)}dialog{border:0;border-radius:18px;padding:0;width:min(720px,calc(100vw - 28px));box-shadow:0 24px 80px #17203335}dialog::backdrop{background:#17203366}.modal{padding:20px}.modal textarea{min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.preview{max-height:170px;overflow:auto;background:#fafbfe;border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px;font:12px/1.5 ui-monospace,monospace}.warning{border:1px solid #f1cf83;background:#fff9e8;color:#8a5a00;padding:10px;border-radius:10px;margin-bottom:14px}.pager{margin-top:12px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}@media(max-width:900px){.summary{grid-template-columns:repeat(3,1fr)}.settings{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.top{align-items:flex-start}.actions{flex-wrap:wrap}}@media(max-width:560px){.summary,.settings{grid-template-columns:1fr 1fr}}
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.25rem;
+    }
+    .stat b {
+      display: block;
+      font-family: var(--font-sans);
+      font-size: 1.65rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+      margin-top: 0.25rem;
+    }
+    .stat span {
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .panel {
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 0.9rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid rgba(34, 30, 24, 0.07);
+      flex-wrap: wrap;
+    }
+    .panel h2 {
+      margin: 0;
+      font-family: var(--font-sans);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+    .sub {
+      margin: 0.2rem 0 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    /* 4-column strictly aligned settings row */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: end;
+    }
+
+    /* Structured Toolbar: Left Filters | Right Batch Actions */
+    .toolbar-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.9rem;
+      padding: 0.65rem 0.75rem;
+      background: #f6f3eb;
+      border: 1px solid rgba(34, 30, 24, 0.07);
+      border-radius: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .toolbar-filters {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex: 1 1 360px;
+      min-width: 0;
+    }
+    .toolbar-filters input {
+      flex: 1 1 220px;
+      max-width: 340px;
+      height: 2.25rem;
+      border-radius: 0.55rem;
+      border: 1.5px solid #dcd4c4;
+      background: #fff;
+      padding: 0 0.75rem;
+      font-size: 0.82rem;
+      color: var(--ink);
+      outline: none;
+    }
+    .toolbar-filters select {
+      width: 165px;
+      height: 2.25rem;
+      border-radius: 0.55rem;
+      border: 1.5px solid #dcd4c4;
+      background: #fff;
+      padding: 0 0.65rem;
+      font-size: 0.82rem;
+      color: var(--ink);
+      outline: none;
+    }
+    .toolbar-filters input:focus, .toolbar-filters select:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(37, 116, 235, 0.12);
+    }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .toolbar-bar .btn {
+      height: 2.25rem;
+      padding: 0 0.75rem;
+      font-size: 0.78rem;
+      border-radius: 0.55rem;
+    }
+
+    table { min-width: 980px; }
+    .label-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .seq-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 2rem;
+      height: 1.6rem;
+      padding: 0 0.4rem;
+      border-radius: 0.4rem;
+      background: #f2efe9;
+      color: #575044;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .empty {
+      padding: 3rem 1.5rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+    .pager {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.9rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid rgba(34, 30, 24, 0.07);
+      flex-wrap: wrap;
+    }
+    .pager select {
+      height: 2rem;
+      border-radius: 0.5rem;
+      border: 1.5px solid #dcd4c4;
+      background: #fff;
+      padding: 0 0.5rem;
+      font-size: 0.78rem;
+      margin-left: 0.3rem;
+    }
+    .pager .btn {
+      height: 2rem;
+      padding: 0 0.75rem;
+      font-size: 0.76rem;
+      border-radius: 0.5rem;
+    }
+    .mono {
+      font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+    }
+
+    dialog {
+      border: 1px solid rgba(34, 30, 24, 0.12);
+      border-radius: 1.15rem;
+      padding: 0;
+      width: min(720px, calc(100vw - 28px));
+      background: #fcfbf9;
+      color: var(--ink);
+      box-shadow: 0 28px 80px rgba(24, 21, 17, 0.28);
+    }
+    dialog::backdrop {
+      background: rgba(24, 21, 17, 0.45);
+      backdrop-filter: blur(4px);
+    }
+    .modal { padding: 1.5rem; }
+    .modal textarea {
+      min-height: 200px;
+      font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.8rem;
+    }
+    .preview {
+      max-height: 160px;
+      overflow: auto;
+      background: #f4f1ea;
+      border: 1px solid rgba(34, 30, 24, 0.09);
+      border-radius: 0.65rem;
+      padding: 0.7rem 0.85rem;
+      margin-top: 0.75rem;
+      font: 12px/1.55 "IBM Plex Mono", ui-monospace, monospace;
+      color: var(--ink-soft);
+    }
+    @media (max-width: 1024px) {
+      .summary { grid-template-columns: repeat(3, 1fr); }
+      .settings-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      .summary, .settings-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
-<body><main class="shell">
-  <header class="top"><div><h1>注册代理</h1><p>按账号分配租约；注册及 xAI 后处理全程锁定同一出口。</p></div><a href="/">← 返回注册控制台</a></header>
-  <div id="directWarning" class="warning" hidden>代理池为空，当前注册将使用直连。</div>
-  <section id="summary" class="summary"></section>
-  <section class="panel"><div class="row"><div><h2>全局策略</h2><p class="sub">修改仅影响新租约，已在注册的账号不会中途换 IP。</p></div><button id="saveSettings" class="btn primary">保存策略</button></div><div class="settings">
-    <div class="field"><label>调度策略</label><select id="strategy"><option value="round_robin">顺序轮询</option><option value="random">随机</option><option value="least_used">最少占用</option></select></div>
-    <div class="field"><label>缺省协议</label><select id="defaultScheme"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option><option value="socks5h">SOCKS5H</option></select></div>
-    <div class="field"><label>每条默认并发</label><input id="defaultConcurrency" type="number" min="1" max="64" value="1"></div>
-    <label class="check"><input id="alignGeo" type="checkbox" checked><span>根据出口地区对齐指纹</span></label>
-  </div><div id="settingsMessage" class="message"></div></section>
-  <section class="panel"><div class="row"><div><h2>代理列表</h2><p class="sub">密码只保存在服务端本地文件，页面和 API 永不回传明文。</p></div><div class="actions"><button id="exportBtn" class="btn">导出脱敏清单</button><button id="addBtn" class="btn primary">＋ 添加代理</button></div></div>
-    <div class="toolbar"><input id="search" placeholder="搜索标签、主机或地区"><select id="status"><option value="">全部状态</option><option value="healthy">健康</option><option value="untested">未测试</option><option value="unhealthy">不可用</option><option value="busy">占用中</option><option value="cooldown">冷却中</option><option value="disabled">已停用</option></select><div class="actions"><button id="enableSelected" class="btn">批量启用</button><button id="disableSelected" class="btn">批量停用</button><button id="setConcurrencySelected" class="btn">设置并发</button><button id="testSelected" class="btn">测试</button><button id="deleteSelected" class="btn danger">删除</button></div></div>
-    <div class="table-wrap"><table><thead><tr><th><input id="checkAll" type="checkbox"></th><th># / 标签</th><th>脱敏代理</th><th>状态</th><th>出口</th><th>占用/上限</th><th>成功 / 失败 / MARKED</th><th>操作</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty" hidden>暂无代理。注册会直连，也可点“添加代理”导入。</div></div>
-    <div class="pager"><span id="pageInfo" class="sub"></span><div class="actions"><label>每页 <select id="perPage"><option>20</option><option selected>50</option><option>100</option><option>200</option><option>500</option><option>1000</option><option>2000</option></select></label><button id="refreshBtn" class="btn">刷新</button><button id="prev" class="btn">上一页</button><button id="next" class="btn">下一页</button></div></div><div id="listMessage" class="message"></div>
-  </section>
-</main>
-<dialog id="importDialog"><div class="modal"><div class="row"><div><h2 style="margin:0">添加代理</h2><p class="sub">每行一条，支持 URL、认证格式与 {session}/{account} 占位符。</p></div><button id="closeDialog" class="btn">关闭</button></div><div class="settings" style="grid-template-columns:1fr 1fr;margin-bottom:10px"><div class="field"><label>导入模式</label><select id="importMode"><option value="append">追加并去重</option><option value="replace">覆盖整个代理池</option></select></div><div class="field"><label>TXT 文件（最大 5 MB）</label><input id="proxyFile" type="file" accept=".txt,text/plain"></div></div><div class="field"><label>粘贴代理</label><textarea id="proxyText" placeholder="http://user:pass@host:port&#10;socks5h://host:port&#10;user-session-{session}:pass@host:port"></textarea></div><div id="preview" class="preview">等待解析预览…</div><div class="actions" style="margin-top:14px;justify-content:flex-end"><button id="previewBtn" class="btn">解析预览</button><button id="importBtn" class="btn primary" disabled>确认导入</button></div><div id="importMessage" class="message"></div></div></dialog>
-<script>
-const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let page=1,total=0,timer=null,last=null,lastRefresh='';
-async function api(url,o={}){const r=await fetch(url,o),d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false){const e=new Error(d.message||(d.errors?.[0]?.error)||`HTTP ${r.status}`);e.data=d;throw e}return d}function msg(id,t,ok=null){const e=$(id);e.textContent=t||'';e.className='message '+(ok===true?'ok':ok===false?'bad':'')}
-const checkedIds=new Set();function selected(){return [...document.querySelectorAll('[data-id]:checked')].map(x=>x.dataset.id)}function syncCheckAll(){const boxes=[...document.querySelectorAll('[data-id]')],checked=boxes.filter(x=>x.checked).length,all=$('checkAll');all.checked=boxes.length>0&&checked===boxes.length;all.indeterminate=checked>0&&checked<boxes.length}function healthBadge(x){if(x.cooldown_remaining>0)return `<span class="badge warn">冷却 ${x.cooldown_remaining}s</span>`;if(!x.enabled)return '<span class="badge">已停用</span>';return `<span class="badge ${x.health==='healthy'?'ok':x.health==='unhealthy'?'bad':''}">${x.health==='healthy'?'健康':x.health==='unhealthy'?'不可用':'未测试'}</span>`}
-    function render(d){last=d;total=d.total;lastRefresh=new Date().toLocaleTimeString();const s=d.summary;$('summary').innerHTML=[['总数',s.total],['健康',s.healthy],['占用',s.busy],['冷却',s.cooldown],['停用',s.disabled],['重复出口',s.duplicate_egress||0]].map(x=>`<div class="stat"><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');$('directWarning').hidden=s.total!==0;$('strategy').value=d.settings.strategy;$('defaultScheme').value=d.settings.default_scheme;$('defaultConcurrency').value=d.settings.default_max_concurrency;$('alignGeo').checked=!!d.settings.align_geo;$('rows').innerHTML=d.items.map((x,i)=>`<tr><td><input type="checkbox" data-id="${x.id}" ${checkedIds.has(String(x.id))?"checked":""}></td><td><b>${(d.page-1)*d.per_page+i+1}</b><small><input data-label="${x.id}" value="${esc(x.label)}" style="width:125px;padding:3px 5px"></small></td><td class="mono">${esc(x.proxy)}</td><td>${healthBadge(x)}<small>${esc(x.disabled_reason||x.health_message||'')}</small></td><td>${esc(x.egress_ip||'—')} ${x.duplicate_egress?'<span class="badge warn">重复</span>':''}<small>${esc(x.region||'')}</small></td><td>${x.in_use} / <input data-cap="${x.id}" type="number" min="1" max="64" placeholder="${d.settings.default_max_concurrency}" value="${x.max_concurrency||''}" style="width:52px;padding:3px"></td><td>${x.success} / ${x.failures} / ${x.marked}</td><td><button class="btn" data-move="${x.id}" data-dir="up">↑</button><button class="btn" data-move="${x.id}" data-dir="down">↓</button><button class="btn" data-test-one="${x.id}">测试</button><button class="btn" data-toggle="${x.id}" data-enabled="${x.enabled?1:0}">${x.enabled?'停用':'启用'}</button></td></tr>`).join('');$('empty').hidden=d.items.length!==0;$('pageInfo').textContent=`第 ${d.page} 页 · 共 ${d.total} 条 · ${lastRefresh}${d.per_page>200?' · 大页手动刷新':''}`;$('prev').disabled=d.page<=1;$('next').disabled=d.page*d.per_page>=d.total;document.querySelectorAll('[data-id]').forEach(x=>x.onchange=()=>{x.checked?checkedIds.add(x.dataset.id):checkedIds.delete(x.dataset.id);syncCheckAll()});syncCheckAll();document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>b.dataset.enabled==='1'?patchOne(b.dataset.toggle,{enabled:false}):bulkProxy('enable',[b.dataset.toggle]));document.querySelectorAll('[data-label]').forEach(x=>x.onchange=()=>patchOne(x.dataset.label,{label:x.value}));document.querySelectorAll('[data-cap]').forEach(x=>x.onchange=()=>patchOne(x.dataset.cap,{max_concurrency:x.value?Number(x.value):null}));document.querySelectorAll('[data-test-one]').forEach(b=>b.onclick=()=>testIds([b.dataset.testOne]));document.querySelectorAll('[data-move]').forEach(b=>b.onclick=async()=>{await api(`/api/proxies/${b.dataset.move}/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:b.dataset.dir})});await load()})}
-    async function load(){const q=encodeURIComponent($('search').value.trim()),st=encodeURIComponent($('status').value),per=Number($('perPage').value||50);render(await api(`/api/proxies?page=${page}&per_page=${per}&q=${q}&status=${st}`))}async function patchOne(id,p){await api('/api/proxies/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});await load()}
-$('saveSettings').onclick=async()=>{try{await api('/api/proxies/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:$('strategy').value,default_scheme:$('defaultScheme').value,default_max_concurrency:Number($('defaultConcurrency').value),align_geo:$('alignGeo').checked})});msg('settingsMessage','策略已保存',true);await load()}catch(e){msg('settingsMessage',e.message,false)}};$('addBtn').onclick=()=>$('importDialog').showModal();$('closeDialog').onclick=()=>$('importDialog').close();$('proxyFile').onchange=async()=>{const f=$('proxyFile').files[0];if(f)$('proxyText').value=await f.text();$('importBtn').disabled=true};
-async function preview(){const body={text:$('proxyText').value,mode:$('importMode').value};try{const d=await api('/api/proxies/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});$('preview').innerHTML=`<b>有效 ${d.valid} 条</b> · 重复 ${d.duplicates} 条<br>`+d.preview.map(x=>esc(x.proxy)).join('<br>');$('importBtn').disabled=d.valid===0;msg('importMessage','解析通过',true)}catch(e){const er=e.data?.errors||[];$('preview').innerHTML=er.map(x=>`第 ${x.line} 行：${esc(x.error)} · ${esc(x.value)}`).join('<br>')||esc(e.message);$('importBtn').disabled=true;msg('importMessage','请修正错误行',false)}}$('previewBtn').onclick=preview;$('importBtn').onclick=async()=>{if($('importMode').value==='replace'&&!confirm('覆盖会删除现有代理，确定继续？'))return;try{const d=await api('/api/proxies/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('proxyText').value,mode:$('importMode').value})});msg('importMessage',`已导入 ${d.added} 条，跳过重复 ${d.duplicates} 条`,true);setTimeout(()=>{$('importDialog').close();load()},500)}catch(e){msg('importMessage',e.message,false)}};
-    async function testIds(ids){if(!ids.length)return msg('listMessage','请先选择代理',false);msg('listMessage',`正在测试 ${ids.length} 条…`);try{const d=await api('/api/proxies/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});msg('listMessage',`测试完成：${d.passed}/${d.total} 通过`,d.passed===d.total);await load()}catch(e){msg('listMessage',e.message,false);await load()}}async function bulkProxy(action,ids=selected()){if(!ids.length)return msg('listMessage','请先选择代理',false);msg('listMessage',action==='enable'?`正在测试并启用 ${ids.length} 条…`:`正在停用 ${ids.length} 条…`);const d=await api('/api/proxies/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,action})});msg('listMessage',`已处理 ${d.changed}，失败 ${d.failed}`,d.failed===0);await load()}$('testSelected').onclick=()=>testIds(selected());$('enableSelected').onclick=()=>bulkProxy('enable');$('disableSelected').onclick=()=>bulkProxy('disable');$('setConcurrencySelected').onclick=async()=>{const ids=selected();if(!ids.length)return msg('listMessage','请先选择代理',false);const raw=prompt('输入并发上限 1-64；留空恢复全局默认','1');if(raw===null)return;const value=raw.trim()===''?null:Number(raw);await Promise.all(ids.map(id=>api('/api/proxies/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({max_concurrency:value})})));await load()};$('deleteSelected').onclick=async()=>{const ids=selected();if(!ids.length||!confirm(`删除选中的 ${ids.length} 条代理？`))return;const d=await api('/api/proxies/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});msg('listMessage',`已删除 ${d.removed}，待释放 ${d.pending}`,true);await load()};$('checkAll').onchange=e=>{document.querySelectorAll('[data-id]').forEach(x=>{x.checked=e.target.checked;e.target.checked?checkedIds.add(x.dataset.id):checkedIds.delete(x.dataset.id)});syncCheckAll()};$('search').oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>{page=1;checkedIds.clear();load()},300)};$('status').onchange=()=>{page=1;checkedIds.clear();load()};$('prev').onclick=()=>{page--;checkedIds.clear();load()};$('next').onclick=()=>{page++;checkedIds.clear();load()};$('refreshBtn').onclick=load;$('perPage').value=localStorage.getItem('proxyPerPage')||'50';$('perPage').onchange=()=>{localStorage.setItem('proxyPerPage',$('perPage').value);page=1;load()};$('exportBtn').onclick=()=>window.open('/api/proxies/export','_blank');document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Number($('perPage').value)<=200)load()});setInterval(()=>{if(!document.hidden&&!$('importDialog').open&&Number($('perPage').value)<=200)load().catch(()=>{})},3000);load().catch(e=>msg('listMessage',e.message,false));
-</script></body></html>
+<body>
+  {% include '_nav.html' %}
+
+  <main class="shell">
+    <div class="page-hero">
+      <div>
+        <h1>注册代理池</h1>
+        <p>按账号分配独立租约；注册全流程及 xAI 异步换票后处理全程锁定同一出口 IP。</p>
+      </div>
+      <div class="actions">
+        <button id="exportBtn" class="btn">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>导出脱敏清单</span>
+        </button>
+        <button id="addBtn" class="btn primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>添加代理</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="directWarning" class="warning" style="margin-bottom: 1.15rem;" hidden>代理池为空，当前注册任务将使用本机直连。点击右上角「添加代理」即可导入代理池。</div>
+
+    <section id="summary" class="summary"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>全局调度策略</h2>
+          <p class="sub">修改策略仅影响新分配租约，正在注册中的账号不会中途切换 IP。</p>
+        </div>
+        <button id="saveSettings" class="btn primary">保存策略</button>
+      </div>
+      <div class="settings-grid">
+        <div class="form-field">
+          <label for="strategy">调度策略</label>
+          <select id="strategy">
+            <option value="round_robin">顺序轮询 (Round Robin)</option>
+            <option value="random">随机挑选 (Random)</option>
+            <option value="least_used">最少占用 (Least Used)</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="defaultScheme">缺省协议</label>
+          <select id="defaultScheme">
+            <option value="http">HTTP</option>
+            <option value="https">HTTPS</option>
+            <option value="socks5">SOCKS5</option>
+            <option value="socks5h">SOCKS5H</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="defaultConcurrency">每条默认并发上限</label>
+          <input id="defaultConcurrency" type="number" min="1" max="64" value="1">
+        </div>
+        <div class="form-field">
+          <label for="alignGeo">浏览器指纹地区</label>
+          <label class="check-inline">
+            <input id="alignGeo" type="checkbox" checked>
+            <span>根据出口地区自动对齐指纹</span>
+          </label>
+        </div>
+      </div>
+      <div id="settingsMessage" class="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head" style="margin-bottom: 0.85rem;">
+        <div>
+          <h2>代理节点列表</h2>
+          <p class="sub">代理认证凭据仅保存在服务端本地文件，前端与 API 永不回传明文密码。</p>
+        </div>
+      </div>
+
+      <div class="toolbar-bar">
+        <div class="toolbar-filters">
+          <input id="search" placeholder="搜索节点标签、主机地址或出口国家/地区…">
+          <select id="status">
+            <option value="">全部节点状态</option>
+            <option value="healthy">健康 (Healthy)</option>
+            <option value="untested">未测试 (Untested)</option>
+            <option value="unhealthy">不可用 (Unhealthy)</option>
+            <option value="busy">占用中 (Busy)</option>
+            <option value="cooldown">冷却中 (Cooldown)</option>
+            <option value="disabled">已停用 (Disabled)</option>
+          </select>
+        </div>
+        <div class="actions">
+          <button id="enableSelected" class="btn">批量启用</button>
+          <button id="disableSelected" class="btn">批量停用</button>
+          <button id="setConcurrencySelected" class="btn">设置并发</button>
+          <button id="testSelected" class="btn">连通测试</button>
+          <button id="deleteSelected" class="btn danger">批量删除</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;"><input id="checkAll" type="checkbox" class="accent-brand-600"></th>
+              <th># / 节点标签</th>
+              <th>脱敏代理地址</th>
+              <th>健康状态</th>
+              <th>出口 IP / 地区</th>
+              <th>当前占用 / 上限</th>
+              <th>成功 / 失败 / MARKED</th>
+              <th style="text-align: right;">快捷操作</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="empty" hidden>暂无代理节点。当前注册会使用直连，也可点击右上角「添加代理」批量导入。</div>
+      </div>
+
+      <div class="pager">
+        <span id="pageInfo" class="sub"></span>
+        <div class="actions">
+          <label class="text-xs text-ink-700/75 font-mono">每页
+            <select id="perPage">
+              <option>20</option>
+              <option selected>50</option>
+              <option>100</option>
+              <option>200</option>
+              <option>500</option>
+              <option>1000</option>
+              <option>2000</option>
+            </select>
+          </label>
+          <button id="refreshBtn" class="btn">刷新</button>
+          <button id="prev" class="btn">← 上一页</button>
+          <button id="next" class="btn">下一页 →</button>
+        </div>
+      </div>
+      <div id="listMessage" class="message"></div>
+    </section>
+  </main>
+
+  <dialog id="importDialog">
+    <div class="modal">
+      <div class="panel-head" style="margin-bottom: 1rem;">
+        <div>
+          <h2 style="margin:0; font-size: 1.15rem;">批量添加代理</h2>
+          <p class="sub">每行一条，支持标准 URL、user:pass@host:port 以及 {session} / {account} 动态占位符。</p>
+        </div>
+        <button id="closeDialog" class="btn btn-sm">关闭</button>
+      </div>
+      <div class="settings-grid" style="grid-template-columns:1fr 1fr; margin-bottom: 0.9rem;">
+        <div class="form-field">
+          <label for="importMode">导入模式</label>
+          <select id="importMode">
+            <option value="append">追加并自动去重</option>
+            <option value="replace">覆盖整个代理池</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="proxyFile">从 TXT 文件读取（最大 5 MB）</label>
+          <input id="proxyFile" type="file" accept=".txt,text/plain">
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="proxyText">粘贴代理列表</label>
+        <textarea id="proxyText" placeholder="http://user:pass@host:port&#10;socks5h://host:port&#10;user-session-{session}:pass@host:port"></textarea>
+      </div>
+      <div id="preview" class="preview">等待解析预览…</div>
+      <div class="actions" style="margin-top: 1rem; justify-content: flex-end;">
+        <button id="previewBtn" class="btn">解析预览</button>
+        <button id="importBtn" class="btn primary" disabled>确认导入</button>
+      </div>
+      <div id="importMessage" class="message"></div>
+    </div>
+  </dialog>
+
+  <script>
+    const $ = id => document.getElementById(id),
+          esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let page = 1, total = 0, timer = null, last = null, lastRefresh = '';
+
+    async function api(url, o = {}) {
+      const r = await fetch(url, o), d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) {
+        const e = new Error(d.message || (d.errors?.[0]?.error) || `HTTP ${r.status}`);
+        e.data = d;
+        throw e;
+      }
+      return d;
+    }
+
+    function msg(id, t, ok = null) {
+      const e = $(id);
+      e.textContent = t || '';
+      e.className = 'message ' + (ok === true ? 'ok' : ok === false ? 'bad' : '');
+    }
+
+    const checkedIds = new Set();
+    function selected() {
+      return [...document.querySelectorAll('[data-id]:checked')].map(x => x.dataset.id);
+    }
+    function syncCheckAll() {
+      const boxes = [...document.querySelectorAll('[data-id]')],
+            checked = boxes.filter(x => x.checked).length,
+            all = $('checkAll');
+      all.checked = boxes.length > 0 && checked === boxes.length;
+      all.indeterminate = checked > 0 && checked < boxes.length;
+    }
+    function healthBadge(x) {
+      if (x.cooldown_remaining > 0) return `<span class="badge warn">冷却 ${x.cooldown_remaining}s</span>`;
+      if (!x.enabled) return '<span class="badge">已停用</span>';
+      return `<span class="badge ${x.health === 'healthy' ? 'ok' : x.health === 'unhealthy' ? 'bad' : ''}">${x.health === 'healthy' ? '健康' : x.health === 'unhealthy' ? '不可用' : '未测试'}</span>`;
+    }
+
+    const statColors = [
+      'text-ink-900',
+      'text-leaf-600',
+      'text-brand-600',
+      'text-sun-500',
+      'text-ink-500',
+      'text-rose-500'
+    ];
+
+    function render(d) {
+      last = d;
+      total = d.total;
+      lastRefresh = new Date().toLocaleTimeString();
+      const s = d.summary;
+      $('summary').innerHTML = [
+        ['代理总数', s.total],
+        ['健康可用', s.healthy],
+        ['当前占用', s.busy],
+        ['冷却恢复中', s.cooldown],
+        ['已停用', s.disabled],
+        ['重复出口 IP', s.duplicate_egress || 0]
+      ].map((x, idx) => `<div class="stat"><span>${x[0]}</span><b class="${statColors[idx] || ''}">${x[1]}</b></div>`).join('');
+
+      $('directWarning').hidden = s.total !== 0;
+      $('strategy').value = d.settings.strategy;
+      $('defaultScheme').value = d.settings.default_scheme;
+      $('defaultConcurrency').value = d.settings.default_max_concurrency;
+      $('alignGeo').checked = !!d.settings.align_geo;
+
+      $('rows').innerHTML = d.items.map((x, i) => `
+        <tr>
+          <td><input type="checkbox" class="accent-brand-600" data-id="${x.id}" ${checkedIds.has(String(x.id)) ? "checked" : ""}></td>
+          <td>
+            <div class="label-cell">
+              <span class="seq-pill">#${(d.page - 1) * d.per_page + i + 1}</span>
+              <input data-label="${x.id}" value="${esc(x.label)}" placeholder="备注标签" style="width:128px;">
+            </div>
+          </td>
+          <td class="mono">${esc(x.proxy)}</td>
+          <td>${healthBadge(x)}${x.disabled_reason || x.health_message ? `<small>${esc(x.disabled_reason || x.health_message)}</small>` : ''}</td>
+          <td class="mono">${esc(x.egress_ip || '—')} ${x.duplicate_egress ? '<span class="badge warn">重复</span>' : ''}${x.region ? `<small>${esc(x.region)}</small>` : ''}</td>
+          <td class="mono">${x.in_use} / <input data-cap="${x.id}" type="number" min="1" max="64" placeholder="${d.settings.default_max_concurrency}" value="${x.max_concurrency || ''}" style="width:54px;"></td>
+          <td class="mono"><span class="text-leaf-600 font-semibold">${x.success}</span> / <span class="text-rose-500">${x.failures}</span> / <span class="text-sun-600">${x.marked}</span></td>
+          <td style="text-align: right;">
+            <button class="btn" data-move="${x.id}" data-dir="up" title="上移">↑</button>
+            <button class="btn" data-move="${x.id}" data-dir="down" title="下移">↓</button>
+            <button class="btn" data-test-one="${x.id}">测试</button>
+            <button class="btn ${x.enabled ? '' : 'primary'}" data-toggle="${x.id}" data-enabled="${x.enabled ? 1 : 0}">${x.enabled ? '停用' : '启用'}</button>
+          </td>
+        </tr>`).join('');
+
+      $('empty').hidden = d.items.length !== 0;
+      $('pageInfo').textContent = `第 ${d.page} 页 · 共 ${d.total} 条 · ${lastRefresh}${d.per_page > 200 ? ' · 大页手动刷新' : ''}`;
+      $('prev').disabled = d.page <= 1;
+      $('next').disabled = d.page * d.per_page >= d.total;
+
+      document.querySelectorAll('[data-id]').forEach(x => x.onchange = () => {
+        x.checked ? checkedIds.add(x.dataset.id) : checkedIds.delete(x.dataset.id);
+        syncCheckAll();
+      });
+      syncCheckAll();
+      document.querySelectorAll('[data-toggle]').forEach(b => b.onclick = () => b.dataset.enabled === '1' ? patchOne(b.dataset.toggle, {enabled: false}) : bulkProxy('enable', [b.dataset.toggle]));
+      document.querySelectorAll('[data-label]').forEach(x => x.onchange = () => patchOne(x.dataset.label, {label: x.value}));
+      document.querySelectorAll('[data-cap]').forEach(x => x.onchange = () => patchOne(x.dataset.cap, {max_concurrency: x.value ? Number(x.value) : null}));
+      document.querySelectorAll('[data-test-one]').forEach(b => b.onclick = () => testIds([b.dataset.testOne]));
+      document.querySelectorAll('[data-move]').forEach(b => b.onclick = async () => {
+        await api(`/api/proxies/${b.dataset.move}/move`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({direction: b.dataset.dir})});
+        await load();
+      });
+    }
+
+    async function load() {
+      const q = encodeURIComponent($('search').value.trim()),
+            st = encodeURIComponent($('status').value),
+            per = Number($('perPage').value || 50);
+      render(await api(`/api/proxies?page=${page}&per_page=${per}&q=${q}&status=${st}`));
+    }
+    async function patchOne(id, p) {
+      await api('/api/proxies/' + id, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p)});
+      await load();
+    }
+
+    $('saveSettings').onclick = async () => {
+      try {
+        await api('/api/proxies/settings', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            strategy: $('strategy').value,
+            default_scheme: $('defaultScheme').value,
+            default_max_concurrency: Number($('defaultConcurrency').value),
+            align_geo: $('alignGeo').checked
+          })
+        });
+        msg('settingsMessage', '策略已保存', true);
+        await load();
+      } catch (e) {
+        msg('settingsMessage', e.message, false);
+      }
+    };
+
+    $('addBtn').onclick = () => $('importDialog').showModal();
+    $('closeDialog').onclick = () => $('importDialog').close();
+    $('proxyFile').onchange = async () => {
+      const f = $('proxyFile').files[0];
+      if (f) $('proxyText').value = await f.text();
+      $('importBtn').disabled = true;
+    };
+
+    async function preview() {
+      const body = {text: $('proxyText').value, mode: $('importMode').value};
+      try {
+        const d = await api('/api/proxies/preview', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        $('preview').innerHTML = `<b>有效 ${d.valid} 条</b> · 重复 ${d.duplicates} 条<br>` + d.preview.map(x => esc(x.proxy)).join('<br>');
+        $('importBtn').disabled = d.valid === 0;
+        msg('importMessage', '解析通过', true);
+      } catch (e) {
+        const er = e.data?.errors || [];
+        $('preview').innerHTML = er.map(x => `第 ${x.line} 行：${esc(x.error)} · ${esc(x.value)}`).join('<br>') || esc(e.message);
+        $('importBtn').disabled = true;
+        msg('importMessage', '请修正错误行', false);
+      }
+    }
+    $('previewBtn').onclick = preview;
+    $('importBtn').onclick = async () => {
+      if ($('importMode').value === 'replace' && !confirm('覆盖会删除现有代理，确定继续？')) return;
+      try {
+        const d = await api('/api/proxies/import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: $('proxyText').value, mode: $('importMode').value})});
+        msg('importMessage', `已导入 ${d.added} 条，跳过重复 ${d.duplicates} 条`, true);
+        setTimeout(() => { $('importDialog').close(); load(); }, 500);
+      } catch (e) {
+        msg('importMessage', e.message, false);
+      }
+    };
+
+    async function testIds(ids) {
+      if (!ids.length) return msg('listMessage', '请先选择代理', false);
+      msg('listMessage', `正在测试 ${ids.length} 条…`);
+      try {
+        const d = await api('/api/proxies/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})});
+        msg('listMessage', `测试完成：${d.passed}/${d.total} 通过`, d.passed === d.total);
+        await load();
+      } catch (e) {
+        msg('listMessage', e.message, false);
+        await load();
+      }
+    }
+    async function bulkProxy(action, ids = selected()) {
+      if (!ids.length) return msg('listMessage', '请先选择代理', false);
+      msg('listMessage', action === 'enable' ? `正在测试并启用 ${ids.length} 条…` : `正在停用 ${ids.length} 条…`);
+      const d = await api('/api/proxies/bulk', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids, action})});
+      msg('listMessage', `已处理 ${d.changed}，失败 ${d.failed}`, d.failed === 0);
+      await load();
+    }
+
+    $('testSelected').onclick = () => testIds(selected());
+    $('enableSelected').onclick = () => bulkProxy('enable');
+    $('disableSelected').onclick = () => bulkProxy('disable');
+    $('setConcurrencySelected').onclick = async () => {
+      const ids = selected();
+      if (!ids.length) return msg('listMessage', '请先选择代理', false);
+      const raw = prompt('输入并发上限 1-64；留空恢复全局默认', '1');
+      if (raw === null) return;
+      const value = raw.trim() === '' ? null : Number(raw);
+      await Promise.all(ids.map(id => api('/api/proxies/' + id, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({max_concurrency: value})})));
+      await load();
+    };
+    $('deleteSelected').onclick = async () => {
+      const ids = selected();
+      if (!ids.length || !confirm(`删除选中的 ${ids.length} 条代理？`)) return;
+      const d = await api('/api/proxies/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})});
+      msg('listMessage', `已删除 ${d.removed}，待释放 ${d.pending}`, true);
+      await load();
+    };
+
+    $('checkAll').onchange = e => {
+      document.querySelectorAll('[data-id]').forEach(x => {
+        x.checked = e.target.checked;
+        e.target.checked ? checkedIds.add(x.dataset.id) : checkedIds.delete(x.dataset.id);
+      });
+      syncCheckAll();
+    };
+    $('search').oninput = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { page = 1; checkedIds.clear(); load(); }, 300);
+    };
+    $('status').onchange = () => { page = 1; checkedIds.clear(); load(); };
+    $('prev').onclick = () => { page--; checkedIds.clear(); load(); };
+    $('next').onclick = () => { page++; checkedIds.clear(); load(); };
+    $('refreshBtn').onclick = load;
+    $('perPage').value = localStorage.getItem('proxyPerPage') || '50';
+    $('perPage').onchange = () => {
+      localStorage.setItem('proxyPerPage', $('perPage').value);
+      page = 1;
+      load();
+    };
+    $('exportBtn').onclick = () => window.open('/api/proxies/export', '_blank');
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && Number($('perPage').value) <= 200) load();
+    });
+    setInterval(() => {
+      if (!document.hidden && !$('importDialog').open && Number($('perPage').value) <= 200) load().catch(() => {});
+    }, 3000);
+    load().catch(e => msg('listMessage', e.message, false));
+  </script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{% set current_path = request.path if request is defined else '/' %}
+<header class="sticky top-0 z-40 border-b border-ink-900/10 bg-paper-50/90 backdrop-blur-xl">
+  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+    <!-- Left: Brand Identity -->
+    <a href="/" class="inline-flex items-center gap-3 group text-left no-underline shrink-0">
+      <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-brand-500 via-brand-600 to-leaf-500 text-white inline-flex items-center justify-center shrink-0 shadow-soft font-display text-lg font-bold leading-none transition-transform duration-200 group-hover:scale-105 ring-2 ring-white/80">
+        <span>G</span>
+      </div>
+      <div class="leading-tight">
+        <div class="flex items-center gap-2">
+          <span class="font-display text-lg font-bold tracking-tight text-ink-900">Grok 注册工作台</span>
+          <span class="hidden sm:inline-flex items-center rounded-md bg-paper-200/80 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-ink-700/75 border border-ink-900/5">CONSOLE</span>
+        </div>
+        <p class="text-[11px] text-ink-700/60 font-mono m-0 mt-0.5">自动化注册 · 邮箱域池 · 代理租约 · 多目标导入</p>
+      </div>
+    </a>
+
+    <!-- Center: Global Segmented Navigation -->
+    <nav aria-label="全局导航" class="flex items-center gap-1 p-1 rounded-xl bg-paper-100/95 border border-ink-900/8 shadow-inner overflow-x-auto">
+      <a href="/"
+         class="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all no-underline whitespace-nowrap {{ 'bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 font-bold' if current_path == '/' else 'text-ink-700/75 hover:text-ink-900 hover:bg-white/60' }}">
+        <svg class="w-3.5 h-3.5 shrink-0 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span>注册控制台</span>
+      </a>
+      <a href="/email-settings"
+         class="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all no-underline whitespace-nowrap {{ 'bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 font-bold' if current_path.startswith('/email') else 'text-ink-700/75 hover:text-ink-900 hover:bg-white/60' }}">
+        <svg class="w-3.5 h-3.5 shrink-0 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        <span>邮箱配置</span>
+      </a>
+      <a href="/proxy-settings"
+         class="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all no-underline whitespace-nowrap {{ 'bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 font-bold' if current_path.startswith('/proxy') else 'text-ink-700/75 hover:text-ink-900 hover:bg-white/60' }}">
+        <svg class="w-3.5 h-3.5 shrink-0 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <span>注册代理池</span>
+      </a>
+      <a href="/import-services"
+         class="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all no-underline whitespace-nowrap {{ 'bg-white text-brand-600 shadow-sm ring-1 ring-ink-900/5 font-bold' if current_path.startswith('/import') else 'text-ink-700/75 hover:text-ink-900 hover:bg-white/60' }}">
+        <svg class="w-3.5 h-3.5 shrink-0 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>导入中心</span>
+      </a>
+    </nav>
+
+    <!-- Right: Status / Quick Action -->
+    <div class="flex items-center gap-2.5 shrink-0">
+      {% if current_path == '/' %}
+      <div id="statusBadge" class="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-mono font-semibold border border-ink-900/10 bg-white shadow-sm">
+        <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-400"></span>
+        <span id="statusText" class="text-ink-800">IDLE</span>
+      </div>
+      {% else %}
+      <a href="/" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-ink-900/10 bg-white text-ink-800 hover:border-brand-500 hover:text-brand-600 shadow-sm transition-colors no-underline">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span>返回主控台</span>
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</header>

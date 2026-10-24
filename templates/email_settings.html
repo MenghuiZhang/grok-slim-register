@@ -3,122 +3,911 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>邮箱服务配置</title>
+  <title>邮箱服务配置 · Grok 注册工作台</title>
+{% include '_head.html' %}
   <style>
-    :root{--ink:#172033;--muted:#6b7280;--line:#dfe4ec;--paper:#f5f7fb;--card:#fff;--brand:#5b5bd6;--ok:#16845b;--bad:#d9465f;--warn:#b7791f}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-    button,input,select,textarea{font:inherit}.shell{max-width:1180px;margin:auto;padding:28px 20px 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.top h1{margin:0;font-size:25px}.top p{margin:4px 0 0;color:var(--muted)}
-    a{color:var(--brand);text-decoration:none}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.provider-card{position:relative;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:16px;padding:15px;cursor:pointer;min-height:112px}.provider-card:hover,.provider-card.selected{border-color:var(--brand);box-shadow:0 0 0 2px #5b5bd619}.provider-card.active:after{content:"当前启用";position:absolute;right:10px;top:10px;background:#e9e9ff;color:var(--brand);border-radius:99px;padding:2px 7px;font-size:11px;font-weight:700}.provider-card strong{display:block;padding-right:62px}.state{font-size:12px;color:var(--muted);margin-top:24px}.state.passed{color:var(--ok)}.state.failed{color:var(--bad)}
-    .layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}.panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px}.panel h2{margin:0 0 4px;font-size:18px}.sub{color:var(--muted);margin:0 0 18px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.field{display:flex;flex-direction:column;gap:5px}.field.full{grid-column:1/-1}.field label{font-size:12px;font-weight:700}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff;color:var(--ink)}.field textarea{min-height:84px;resize:vertical}.hint{font-size:11px;color:var(--muted)}.secret-note{font-size:11px;color:var(--warn)}
-    .provider-form{display:none}.provider-form.visible{display:block}.actions{display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);margin-top:20px;padding-top:16px}.btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 13px;cursor:pointer;font-weight:700}.btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}.btn.danger{color:var(--bad)}.btn:disabled{opacity:.45;cursor:not-allowed}.message{min-height:22px;margin-top:12px;color:var(--muted)}.message.ok{color:var(--ok)}.message.bad{color:var(--bad)}
-    .common{display:grid;gap:12px}.check{display:flex;align-items:center;gap:8px;min-width:0}.check input[type="checkbox"]{width:18px;height:18px;min-width:18px;margin:0;padding:0;flex:0 0 18px;accent-color:var(--brand)}.toggle-group{display:grid;gap:8px}.toggle-option{min-height:44px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fafbfe;cursor:pointer}.toggle-option:hover{border-color:#b9b9ed;background:#f7f7ff}.accounts{display:grid;gap:9px}.account{border:1px solid var(--line);border-radius:12px;padding:11px;background:#fafbfe}.account-grid{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 90px auto;gap:8px;align-items:end}.domain-tools,.domain-actions,.domain-pager{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.domain-tools input{min-width:220px}.domain-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;margin-top:10px}.domain-table{width:100%;border-collapse:collapse;min-width:980px}.domain-table th,.domain-table td{padding:9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}.domain-table th{background:#fafbfe;font-size:11px;color:var(--muted)}.domain-pager{justify-content:space-between;margin-top:10px}.badge{display:inline-block;border-radius:99px;padding:2px 8px;background:#eef1f6;font-size:11px}.badge.ok{background:#e8f7f0;color:var(--ok)}.badge.bad{background:#fff0f2;color:var(--bad)}.badge.warn{background:#fff8e8;color:var(--warn)}.warning{border:1px solid #f1cf83;background:#fff9e8;padding:10px;border-radius:10px;color:#8a5a00;font-size:12px}.advanced{margin-top:10px}
-    @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.account-grid{grid-template-columns:1fr 1fr}.account-grid .remove{grid-column:1/-1}.grid{grid-template-columns:1fr}.field.full{grid-column:auto}}
+    /* 4 Equal-Height Provider Cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.9rem;
+      margin-bottom: 1.25rem;
+    }
+    .provider-card {
+      position: relative;
+      text-align: left;
+      border: 1.5px solid rgba(34, 30, 24, 0.09);
+      background: rgba(255, 255, 255, 0.94);
+      border-radius: 0.95rem;
+      padding: 1.1rem 1.15rem;
+      cursor: pointer;
+      height: 120px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: inset 0 1px 0 #fff, 0 6px 18px -6px rgba(34, 30, 24, 0.05);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .provider-card:hover {
+      border-color: rgba(37, 116, 235, 0.45);
+      box-shadow: inset 0 1px 0 #fff, 0 10px 24px -8px rgba(34, 30, 24, 0.08);
+    }
+    .provider-card.selected {
+      border-color: var(--brand);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(37, 116, 235, 0.14), 0 10px 24px -8px rgba(37, 116, 235, 0.12);
+    }
+    .provider-card.active::after {
+      content: "✓ 当前启用";
+      position: absolute;
+      right: 0.8rem;
+      top: 0.8rem;
+      background: #ecfdf5;
+      color: #0f7647;
+      border: 1px solid rgba(22, 156, 98, 0.25);
+      border-radius: 999px;
+      padding: 0.14rem 0.55rem;
+      font-size: 0.66rem;
+      font-weight: 700;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .provider-card strong {
+      display: block;
+      padding-right: 4.8rem;
+      font-family: var(--font-sans);
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .provider-card > div > span {
+      display: block;
+      margin-top: 0.2rem;
+      font-size: 0.74rem;
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--muted);
+    }
+    .state {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.7rem;
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--muted);
+      padding-top: 0.55rem;
+      border-top: 1px dashed rgba(34, 30, 24, 0.08);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .state::before {
+      content: "";
+      width: 0.4rem;
+      height: 0.4rem;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.8;
+      flex-shrink: 0;
+    }
+    .state.passed { color: var(--ok); font-weight: 600; }
+    .state.failed { color: var(--bad); font-weight: 600; }
+
+    /* Main Split Layout */
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 1.25rem;
+      align-items: start;
+    }
+    .panel {
+      padding: 1.35rem 1.5rem;
+    }
+    .panel-head {
+      padding-bottom: 0.9rem;
+      margin-bottom: 1.15rem;
+      border-bottom: 1px solid rgba(34, 30, 24, 0.07);
+    }
+    .panel h2 {
+      margin: 0;
+      font-family: var(--font-sans);
+      font-size: 1.08rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-family: "IBM Plex Mono", monospace;
+      margin: 0.2rem 0 0;
+    }
+
+    /* Non-conflicting 2-col Form Grid (replaces .grid) */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+
+    .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      margin-top: 0.25rem;
+    }
+    .secret-note {
+      font-size: 0.7rem;
+      color: var(--warn);
+      font-family: "IBM Plex Mono", monospace;
+      margin-top: 0.2rem;
+      min-height: 0.9rem;
+    }
+
+    .provider-form { display: none; }
+    .provider-form.visible { display: block; }
+
+    /* Outlook Account Cards */
+    .accounts {
+      display: grid;
+      gap: 0.75rem;
+      margin-bottom: 0.65rem;
+    }
+    .account {
+      border: 1px solid rgba(34, 30, 24, 0.09);
+      border-radius: 0.8rem;
+      padding: 0.85rem 1rem;
+      background: #fcfbf9;
+    }
+    .account-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr 1fr 1fr 88px auto;
+      gap: 0.65rem;
+      align-items: end;
+    }
+    .account-grid .btn {
+      height: 2.5rem;
+    }
+
+    /* Cloudflare Domain Pool Structured Section */
+    .domain-section {
+      margin-top: 1.25rem;
+      padding-top: 1.15rem;
+      border-top: 1px solid rgba(34, 30, 24, 0.08);
+    }
+    .domain-section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .domain-section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .domain-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.65rem;
+      padding: 0.65rem 0.75rem;
+      background: #f6f3eb;
+      border: 1px solid rgba(34, 30, 24, 0.07);
+      border-radius: 0.75rem;
+      margin-bottom: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .domain-bar-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .domain-bar input, .domain-bar select {
+      height: 2.25rem !important;
+      width: auto !important;
+      border-radius: 0.55rem !important;
+      border: 1.5px solid #dcd4c4 !important;
+      background: #fff !important;
+      padding: 0 0.75rem !important;
+      font-size: 0.82rem !important;
+    }
+    .domain-bar #newDomain, .domain-bar #domainSearch {
+      min-width: 220px;
+    }
+    .domain-bar #domainStatus {
+      min-width: 120px;
+    }
+    .domain-bar .btn {
+      height: 2.25rem;
+      padding: 0 0.75rem;
+      font-size: 0.78rem;
+      border-radius: 0.55rem;
+    }
+
+    .domain-table { min-width: 980px; }
+    .domain-pager {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-top: 0.85rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(34, 30, 24, 0.07);
+      flex-wrap: wrap;
+    }
+    .domain-pager select {
+      height: 2rem !important;
+      width: auto !important;
+      border-radius: 0.5rem !important;
+      border: 1.5px solid #dcd4c4 !important;
+      background: #fff !important;
+      padding: 0 0.5rem !important;
+      font-size: 0.78rem !important;
+      margin-left: 0.25rem;
+    }
+    .domain-pager .btn {
+      height: 2rem;
+      padding: 0 0.7rem;
+      font-size: 0.76rem;
+      border-radius: 0.5rem;
+    }
+
+    /* Footer Actions Bar */
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      border-top: 1px solid rgba(34, 30, 24, 0.08);
+      margin-top: 1.35rem;
+      padding-top: 1.1rem;
+    }
+    .actions-group {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .common {
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    @media (max-width: 1024px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .layout { grid-template-columns: 1fr; }
+      .account-grid { grid-template-columns: 1fr 1fr; }
+      .account-grid .remove { grid-column: 1 / -1; }
+    }
+    @media (max-width: 640px) {
+      .cards, .form-grid { grid-template-columns: 1fr; }
+      .form-field.full { grid-column: auto; }
+    }
   </style>
 </head>
 <body>
-<main class="shell">
-  <header class="top">
-    <div><h1>邮箱服务配置</h1><p>全局只启用一个服务。保存配置后测试，通过后再启用。</p></div>
-    <a href="/">← 返回注册控制台</a>
-  </header>
-  <section id="providerCards" class="cards"></section>
-  <div class="layout">
-    <section class="panel">
-      <h2 id="formTitle">邮箱服务</h2><p id="formSubtitle" class="sub"></p>
+  {% include '_nav.html' %}
 
-      <div id="form-outlook" class="provider-form">
-        <div class="field full"><label>Outlook 账号池</label><div id="accounts" class="accounts"></div><button id="addAccount" type="button" class="btn">＋ 添加账号</button><span class="hint">OAuth2 优先，失败后使用应用密码。Alias 上限表示同时占用数。</span></div>
-        <div class="grid"><div class="field"><label>默认 Alias 上限</label><input id="outlookDefaultLimit" type="number" min="1" max="999" value="5"></div><div class="field"><label>邮箱操作并发</label><input id="outlookConcurrency" type="number" min="1" max="64" value="5"></div></div>
+  <main class="shell">
+    <div class="page-hero">
+      <div>
+        <h1>邮箱服务配置</h1>
+        <p>全局仅启用一个主邮箱服务。修改凭据或域名后请先保存并执行真实连接测试，验证通过后再设为当前启用服务。</p>
       </div>
+    </div>
 
-      <div id="form-freemail" class="provider-form"><div class="grid">
-        <div class="field full"><label>API / Worker 地址</label><input id="freemailBase" placeholder="https://mail.example.com"></div>
-        <div class="field full"><label>Bearer Token（可选）</label><input id="freemailToken" type="password"><span id="freemailTokenNote" class="secret-note"></span></div>
-        <div class="field"><label>域名</label><input id="freemailDomain" list="freemailDomainList" value="auto"><datalist id="freemailDomainList"></datalist></div>
-        <div class="field"><label>邮箱操作并发</label><input id="freemailConcurrency" type="number" min="1" max="64" value="10"></div>
-      </div></div>
+    <section id="providerCards" class="cards"></section>
 
-      <div id="form-yyds" class="provider-form"><div class="grid">
-        <div class="field full"><label>API Key</label><input id="yydsKey" type="password" placeholder="AC-..."><span id="yydsKeyNote" class="secret-note"></span></div>
-        <div class="field"><label>域名</label><input id="yydsDomain" list="yydsDomainList" value="auto"><datalist id="yydsDomainList"></datalist></div>
-        <div class="field"><label>平台代码</label><input id="yydsPlatform" list="yydsPlatformList" value="grok"><datalist id="yydsPlatformList"></datalist></div>
-        <div class="field"><label>邮箱操作并发</label><input id="yydsConcurrency" type="number" min="1" max="64" value="5"></div>
-        <div class="field"><label>Base URL（高级）</label><input id="yydsBase" value="https://maliapi.215.im/v1"></div>
-      </div></div>
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-head">
+          <h2 id="formTitle">邮箱服务</h2>
+          <p id="formSubtitle" class="sub"></p>
+        </div>
 
-      <div id="form-cloudflare_temp" class="provider-form"><div class="grid">
-        <div class="field full"><label>Worker 地址</label><input id="cfBase" placeholder="https://mail.example.workers.dev"></div>
-        <div class="field"><label>站点密码</label><input id="cfSiteToken" type="password"><span id="cfSiteTokenNote" class="secret-note"></span></div>
-        <div class="field"><label>管理员密钥（优先）</label><input id="cfAdminKey" type="password"><span id="cfAdminKeyNote" class="secret-note"></span></div>
-        <div class="field"><label>邮箱操作并发</label><input id="cfConcurrency" type="number" min="1" max="64" value="10"></div>
-        <div class="field"><label>域名行为</label><div class="toggle-group"><label class="check toggle-option"><input id="cfAutoDomain" type="checkbox"><span>服务端自动选择域名</span></label><label class="check toggle-option"><input id="cfRandomSubdomain" type="checkbox"><span>启用随机子域</span></label></div></div>
-        <div class="field full"><label>域名池</label><div class="domain-tools"><input id="newDomain" placeholder="example.com"><button id="addDomain" type="button" class="btn">添加并启用</button><button id="fetchDomains" type="button" class="btn">拉取并替换启用列表</button><input id="domainSearch" placeholder="搜索域名或原因"><select id="domainStatus"><option value="">全部状态</option><option value="enabled">启用</option><option value="disabled">停用</option></select></div><div class="domain-actions"><button id="domainEnable" type="button" class="btn">批量启用</button><button id="domainDisable" type="button" class="btn">批量停用</button><button id="domainTest" type="button" class="btn">仅测试</button><button id="domainDelete" type="button" class="btn danger">永久删除</button></div><div class="domain-table-wrap"><table class="domain-table"><thead><tr><th><input id="domainCheckAll" type="checkbox"></th><th>顺序 / 域名</th><th>状态</th><th>成功 / 失败</th><th>邮箱健康</th><th>历史原因 / 时间</th><th>操作</th></tr></thead><tbody id="domainRows"></tbody></table><div id="domainEmpty" class="hint" style="padding:20px;text-align:center" hidden>暂无域名</div></div><div class="domain-pager"><span id="domainPageInfo" class="hint"></span><div class="domain-actions"><label>每页 <select id="domainPerPage"><option>20</option><option selected>50</option><option>100</option><option>200</option><option>500</option><option>1000</option><option>2000</option></select></label><button id="domainRefresh" type="button" class="btn">刷新</button><button id="domainPrev" type="button" class="btn">上一页</button><button id="domainNext" type="button" class="btn">下一页</button></div></div></div>
-      </div></div>
+        <!-- Outlook Form -->
+        <div id="form-outlook" class="provider-form">
+          <div class="form-field full" style="margin-bottom: 1.1rem;">
+            <div class="flex items-center justify-between mb-2">
+              <label style="margin:0">Outlook 账号池</label>
+              <button id="addAccount" type="button" class="btn btn-sm">＋ 添加 Outlook 账号</button>
+            </div>
+            <div id="accounts" class="accounts"></div>
+            <span class="hint">OAuth2 (Refresh Token) 优先，失败后回退至应用密码。Alias 上限代表单账号同时分配的加号地址数。</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="outlookDefaultLimit">默认 Alias 上限</label>
+              <input id="outlookDefaultLimit" type="number" min="1" max="999" value="5">
+            </div>
+            <div class="form-field">
+              <label for="outlookConcurrency">邮箱操作并发</label>
+              <input id="outlookConcurrency" type="number" min="1" max="64" value="5">
+            </div>
+          </div>
+        </div>
 
-      <div class="actions"><button id="save" class="btn primary">保存配置</button><button id="fetch" class="btn">拉取域名/平台</button><button id="test" class="btn">测试当前服务</button><button id="testAll" class="btn">测试全部域名</button><button id="activate" class="btn">设为当前服务</button><button id="clear" class="btn danger">清除本服务</button></div>
-      <div id="message" class="message"></div>
-    </section>
+        <!-- Freemail Form -->
+        <div id="form-freemail" class="provider-form">
+          <div class="form-grid">
+            <div class="form-field full">
+              <label for="freemailBase">API / Worker 地址</label>
+              <input id="freemailBase" placeholder="https://mail.example.com">
+            </div>
+            <div class="form-field full">
+              <label for="freemailToken">Bearer Token（可选）</label>
+              <input id="freemailToken" type="password" placeholder="留空保留已存密钥">
+              <span id="freemailTokenNote" class="secret-note"></span>
+            </div>
+            <div class="form-field">
+              <label for="freemailDomain">使用域名</label>
+              <input id="freemailDomain" list="freemailDomainList" value="auto">
+              <datalist id="freemailDomainList"></datalist>
+            </div>
+            <div class="form-field">
+              <label for="freemailConcurrency">邮箱操作并发</label>
+              <input id="freemailConcurrency" type="number" min="1" max="64" value="10">
+            </div>
+          </div>
+        </div>
 
-    <aside class="panel"><h2>公共设置</h2><p class="sub">所有 provider 共用</p><div class="common">
-      <div class="field"><label>验证码总超时（秒）</label><input id="timeout" type="number" min="30" max="600" value="120"></div>
-      <div class="field"><label>邮箱 API 代理</label><select id="proxyMode"><option value="direct">直连</option><option value="register">复用注册代理</option><option value="custom">单独代理</option><option value="system">系统代理</option></select></div>
-      <div class="field"><label>单独代理地址</label><input id="proxyUrl" placeholder="http://127.0.0.1:7890"></div>
-      <label class="check"><input id="tlsVerify" type="checkbox" checked> 严格验证 TLS 证书</label>
-      <div class="warning">关闭 TLS 验证会暴露邮箱凭据，只应临时用于可信的自建实例。</div>
-      <p class="hint">密钥不会由服务器返回。输入框留空表示保留原值；“清除本服务”才会删除凭据。</p>
-    </div></aside>
-  </div>
-</main>
-<script>
-const providers=['outlook','freemail','yyds','cloudflare_temp'];
-const descriptions={outlook:'Plus Alias · 多账号 IMAP',freemail:'idinging /api/generate',yyds:'maliapi.215.im/v1',cloudflare_temp:'dreamhunter · 多域轮替'};
-let model=null,selected='cloudflare_temp',domains=[],domainPage=1,domainTotal=0,domainTimer=null,domainLastRefresh='',domainLoadSequence=0,domainSelectionKey='';
-const domainSelection=new Set();
-const $=id=>document.getElementById(id);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(url,options={}){const r=await fetch(url,options);const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.message||`HTTP ${r.status}`);return d}
-function msg(text,ok=null){$('message').textContent=text;$('message').className='message '+(ok===true?'ok':ok===false?'bad':'')}
-function stateText(s){return s?.status==='passed'?'测试通过':s?.status==='failed'?'测试失败':'未测试'}
-function renderCards(){const labels=model.labels,states=model.test_states;$('providerCards').innerHTML=providers.map(p=>`<button class="provider-card ${p===selected?'selected':''} ${p===model.config.provider?'active':''}" data-p="${p}"><strong>${esc(labels[p])}</strong><span>${esc(descriptions[p])}</span><div class="state ${states[p]?.status||''}">${stateText(states[p])}${states[p]?.tested_at?' · '+new Date(states[p].tested_at).toLocaleString():''}</div></button>`).join('');document.querySelectorAll('.provider-card').forEach(b=>b.onclick=()=>selectProvider(b.dataset.p))}
-function selectProvider(p){selected=p;document.querySelectorAll('.provider-form').forEach(x=>x.classList.remove('visible'));$('form-'+p).classList.add('visible');$('formTitle').textContent=model.labels[p];$('formSubtitle').textContent=descriptions[p];$('testAll').style.display=p==='cloudflare_temp'?'inline-block':'none';renderCards()}
-function secretNote(id,obj,key){$(id).textContent=obj[key+'_set']?`已保存：${obj[key+'_masked']||'••••••'}；留空保留`:''}
-function renderAccounts(accounts){$('accounts').innerHTML=(accounts||[]).map((a,i)=>`<div class="account"><div class="account-grid"><div class="field"><label>邮箱</label><input data-a="email" data-i="${i}" value="${esc(a.email||'')}"></div><div class="field"><label>应用密码</label><input type="password" data-a="password" data-i="${i}" placeholder="${esc(a.password_masked||'留空保留')}"></div><div class="field"><label>Client ID</label><input data-a="client_id" data-i="${i}" value="${esc(a.client_id||'')}"></div><div class="field"><label>Refresh Token</label><input type="password" data-a="refresh_token" data-i="${i}" placeholder="${esc(a.refresh_token_masked||'留空保留')}"></div><div class="field"><label>Alias 上限</label><input type="number" min="1" max="999" data-a="alias_limit" data-i="${i}" value="${Number(a.alias_limit||5)}"></div><button class="btn danger remove" data-remove="${i}" type="button">删除</button></div></div>`).join('');document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const a=model.config.providers.outlook.accounts;a.splice(Number(b.dataset.remove),1);renderAccounts(a)})}
-function readAccounts(){return [...document.querySelectorAll('#accounts .account')].map(row=>{const out={};row.querySelectorAll('[data-a]').forEach(x=>out[x.dataset.a]=x.type==='number'?Number(x.value):x.value.trim());return out}).filter(a=>a.email)}
-function domainSelected(){return [...domainSelection]}
-function domainBadge(s){return s==='enabled'?'<span class="badge ok">启用</span>':'<span class="badge bad">停用</span>'}
-function clearDomainSelection(){domainSelection.clear();domainSelectionKey='';document.querySelectorAll('[data-domain-id]').forEach(x=>x.checked=false);updateDomainCheckAll()}
-function updateDomainCheckAll(){const boxes=[...document.querySelectorAll('[data-domain-id]')],checked=boxes.filter(x=>x.checked).length;$('domainCheckAll').checked=boxes.length>0&&checked===boxes.length;$('domainCheckAll').indeterminate=checked>0&&checked<boxes.length}
-async function loadDomains(){
-  const sequence=++domainLoadSequence,per=Number($('domainPerPage').value||50),query=$('domainSearch').value.trim(),status=$('domainStatus').value;
-  const selectionKey=`${domainPage}\u0000${per}\u0000${query}\u0000${status}`;
-  const d=await api(`/api/domains?page=${domainPage}&per_page=${per}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`);
-  if(sequence!==domainLoadSequence)return;
-  if(domainSelectionKey!==selectionKey)domainSelection.clear();
-  domainSelectionKey=selectionKey;
-  const visibleIds=new Set(d.items.map(x=>x.id));
-  for(const id of domainSelection)if(!visibleIds.has(id))domainSelection.delete(id);
-  domainTotal=d.total;domainLastRefresh=new Date().toLocaleTimeString();
-  $('domainRows').innerHTML=d.items.map((x,i)=>`<tr><td><input type="checkbox" data-domain-id="${x.id}" ${domainSelection.has(x.id)?'checked':''}></td><td><b>${(d.page-1)*d.per_page+i+1}</b> · ${esc(x.domain)}</td><td>${domainBadge(x.status)}${Number(x.cooldown_until||0)>Date.now()/1000?'<br><small>冷却中</small>':''}<br><small>${esc(x.disabled_reason||'')}</small></td><td>${Number(x.success_count||0)} / ${Number(x.failure_count||0)}${Number(x.consecutive_failures||0)?'<br><small>连续失败 '+Number(x.consecutive_failures)+'</small>':''}</td><td><span class="badge ${x.email_health==='healthy'?'ok':x.email_health==='unhealthy'?'bad':''}">${x.email_health==='healthy'?'健康':x.email_health==='unhealthy'?'失败':'未测试'}</span><br><small>${esc(x.email_health_message||'')}</small></td><td>${esc(x.last_failure_message||'—')}<br><small>${esc(x.last_failure_at||'')}</small></td><td><button type="button" class="btn" data-domain-move="${x.id}" data-dir="up">↑</button><button type="button" class="btn" data-domain-move="${x.id}" data-dir="down">↓</button><button type="button" class="btn" data-domain-one-test="${x.id}">测试</button><button type="button" class="btn" data-domain-toggle="${x.id}" data-enabled="${x.status==='enabled'?1:0}">${x.status==='enabled'?'停用':'启用'}</button></td></tr>`).join('');
-  $('domainEmpty').hidden=d.items.length!==0;$('domainPageInfo').textContent=`第 ${d.page} 页 · 共 ${d.total} 条 · ${domainLastRefresh}`;$('domainPrev').disabled=d.page<=1;$('domainNext').disabled=d.page*d.per_page>=d.total;
-  document.querySelectorAll('[data-domain-id]').forEach(box=>box.onchange=()=>{if(box.checked)domainSelection.add(box.dataset.domainId);else domainSelection.delete(box.dataset.domainId);updateDomainCheckAll()});updateDomainCheckAll();
-  document.querySelectorAll('[data-domain-toggle]').forEach(b=>b.onclick=async()=>{await api('/api/domains/'+b.dataset.domainToggle,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:b.dataset.enabled!=='1'})});await loadDomains()});document.querySelectorAll('[data-domain-one-test]').forEach(b=>b.onclick=()=>testDomains([b.dataset.domainOneTest]));document.querySelectorAll('[data-domain-move]').forEach(b=>b.onclick=async()=>{await api(`/api/domains/${b.dataset.domainMove}/move`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction:b.dataset.dir})});await loadDomains()})
-}
-async function domainBulk(action){const ids=domainSelected();if(!ids.length)return msg('请先选择域名',false);if(action==='delete'&&!confirm(`确定永久删除选中的 ${ids.length} 个域名及其全部历史？此操作无法恢复。`))return;const d=await api('/api/domains/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,action})});msg(d.message||`已处理 ${d.changed??d.removed??0} 条`,d.failed===undefined||d.failed===0);await loadDomains()}
-async function testDomains(ids){if(!ids.length)return msg('请先选择域名',false);msg(`正在测试 ${ids.length} 个域名…`);const d=await api('/api/domains/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});msg(`域名测试完成：${d.passed}/${d.total} 通过`,d.passed===d.total);await loadDomains()}
-function populate(){const c=model.config,p=c.providers;$('timeout').value=c.common.timeout_seconds;$('proxyMode').value=c.common.proxy_mode;$('proxyUrl').value=c.common.proxy_url;$('tlsVerify').checked=!!c.common.tls_verify;
-  renderAccounts(p.outlook.accounts);$('outlookDefaultLimit').value=p.outlook.default_alias_limit;$('outlookConcurrency').value=p.outlook.concurrency;
-  $('freemailBase').value=p.freemail.base_url;$('freemailDomain').value=p.freemail.domain;$('freemailConcurrency').value=p.freemail.concurrency;secretNote('freemailTokenNote',p.freemail,'token');
-  $('yydsBase').value=p.yyds.base_url;$('yydsDomain').value=p.yyds.domain;$('yydsPlatform').value=p.yyds.platform_code;$('yydsConcurrency').value=p.yyds.concurrency;secretNote('yydsKeyNote',p.yyds,'api_key');
-  $('cfBase').value=p.cloudflare_temp.base_url;$('cfConcurrency').value=p.cloudflare_temp.concurrency;$('cfAutoDomain').checked=!!p.cloudflare_temp.auto_domain;$('cfRandomSubdomain').checked=!!p.cloudflare_temp.random_subdomain;domains=[...(p.cloudflare_temp.domains||[])];secretNote('cfSiteTokenNote',p.cloudflare_temp,'site_token');secretNote('cfAdminKeyNote',p.cloudflare_temp,'admin_key');
-}
-function payload(){return {common:{timeout_seconds:Number($('timeout').value),proxy_mode:$('proxyMode').value,proxy_url:$('proxyUrl').value.trim(),tls_verify:$('tlsVerify').checked},providers:{outlook:{accounts:readAccounts(),default_alias_limit:Number($('outlookDefaultLimit').value),concurrency:Number($('outlookConcurrency').value)},freemail:{base_url:$('freemailBase').value.trim(),token:$('freemailToken').value,domain:$('freemailDomain').value.trim()||'auto',concurrency:Number($('freemailConcurrency').value)},yyds:{base_url:$('yydsBase').value.trim(),api_key:$('yydsKey').value,domain:$('yydsDomain').value.trim()||'auto',platform_code:$('yydsPlatform').value.trim()||'grok',concurrency:Number($('yydsConcurrency').value)},cloudflare_temp:{base_url:$('cfBase').value.trim(),site_token:$('cfSiteToken').value,admin_key:$('cfAdminKey').value,domains,auto_domain:$('cfAutoDomain').checked,random_subdomain:$('cfRandomSubdomain').checked,concurrency:Number($('cfConcurrency').value)}}}}
-async function load(){model=await api('/api/email-config');selected=model.config.provider;populate();selectProvider(selected);await loadDomains();if(model.running){document.querySelectorAll('.actions button,.provider-form input,.provider-form select,aside input,aside select').forEach(x=>x.disabled=true);['domainEnable','domainDisable','domainRefresh','domainPrev','domainNext','domainCheckAll','domainSearch','domainStatus','domainPerPage'].forEach(id=>$(id).disabled=false);$('domainDelete').disabled=true;document.querySelectorAll('[data-domain-toggle],[data-domain-id]').forEach(x=>x.disabled=false);document.querySelectorAll('[data-domain-move],[data-domain-one-test]').forEach(x=>x.disabled=true);msg('注册任务运行中：整体域名列表已锁定，只允许启停已有域名（仅影响后续新邮箱）',false)}}
-async function save(){msg('正在保存…');const d=await api('/api/email-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});model.config=d.config;model.test_states=d.test_states;populate();renderCards();msg(d.message,true)}
-async function fetchMeta(){msg('正在使用已保存的配置拉取…');const d=await api('/api/email-config/domains?provider='+selected);const items=d.domains||[];if(selected==='cloudflare_temp'){const values=items.map(x=>typeof x==='string'?x:(x.domain||x.name||''));const imported=await api('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domains:values,replace:true})});domainPage=1;$('domainSearch').value='';$('domainStatus').value='';clearDomainSelection();await loadDomains();msg(imported.message,true)}else{const list=$(selected==='freemail'?'freemailDomainList':'yydsDomainList');list.innerHTML='<option value="auto">'+items.map(x=>`<option value="${esc(typeof x==='string'?x:(x.domain||x.name||x.code||''))}">`).join('');if(selected==='yyds')$('yydsPlatformList').innerHTML=(d.platforms||[]).map(x=>`<option value="${esc(typeof x==='string'?x:(x.code||x.platformCode||x.name||''))}">`).join('');msg(d.message||'拉取完成',true)}}
-async function addDomain(value){const domain=String(value||$('newDomain').value).trim().toLowerCase();if(!domain)return;const d=await api('/api/domains',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})});$('newDomain').value='';msg(d.message,true);await loadDomains()}
-async function runTest(all=false){await save();msg('正在执行真实连接测试…');const d=await api('/api/email-config/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:selected,test_all_domains:all})});model.test_states[selected]=d.test_state;renderCards();msg(d.message,true)}
-async function activate(){await save();const d=await api('/api/email-config/activate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:selected})});model.config.provider=d.provider;renderCards();msg(d.message,true)}
-async function clearConfig(){if(!confirm(`确定清除 ${model.labels[selected]} 的全部配置和凭据？`))return;const d=await api('/api/email-config/'+selected,{method:'DELETE'});msg(d.message,true);await load()}
-$('addAccount').onclick=()=>{model.config.providers.outlook.accounts.push({email:'',password:'',refresh_token:'',client_id:'',alias_limit:Number($('outlookDefaultLimit').value||5)});renderAccounts(model.config.providers.outlook.accounts)};$('addDomain').onclick=()=>addDomain().catch(e=>msg(e.message,false));$('fetchDomains').onclick=()=>fetchMeta().catch(e=>msg(e.message,false));$('fetch').onclick=()=>fetchMeta().catch(e=>msg(e.message,false));$('save').onclick=()=>save().catch(e=>msg(e.message,false));$('test').onclick=()=>runTest(false).catch(e=>msg(e.message,false));$('testAll').onclick=()=>runTest(true).catch(e=>msg(e.message,false));$('activate').onclick=()=>activate().catch(e=>msg(e.message,false));$('clear').onclick=()=>clearConfig().catch(e=>msg(e.message,false));$('domainEnable').onclick=()=>domainBulk('enable').catch(e=>msg(e.message,false));$('domainDisable').onclick=()=>domainBulk('disable').catch(e=>msg(e.message,false));$('domainDelete').onclick=()=>domainBulk('delete').catch(e=>msg(e.message,false));$('domainTest').onclick=()=>testDomains(domainSelected()).catch(e=>msg(e.message,false));$('domainCheckAll').onchange=e=>{document.querySelectorAll('[data-domain-id]').forEach(x=>{x.checked=e.target.checked;if(x.checked)domainSelection.add(x.dataset.domainId);else domainSelection.delete(x.dataset.domainId)});e.target.indeterminate=false};$('domainPrev').onclick=()=>{domainPage--;clearDomainSelection();loadDomains()};$('domainNext').onclick=()=>{domainPage++;clearDomainSelection();loadDomains()};$('domainRefresh').onclick=loadDomains;$('domainPerPage').value=localStorage.getItem('domainPerPage')||'50';$('domainPerPage').onchange=()=>{localStorage.setItem('domainPerPage',$('domainPerPage').value);domainPage=1;clearDomainSelection();loadDomains()};$('domainSearch').oninput=()=>{clearDomainSelection();clearTimeout(domainTimer);domainTimer=setTimeout(()=>{domainPage=1;loadDomains()},300)};$('domainStatus').onchange=()=>{domainPage=1;clearDomainSelection();loadDomains()};document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Number($('domainPerPage').value)<=200)loadDomains().catch(()=>{})});setInterval(()=>{if(!document.hidden&&Number($('domainPerPage').value)<=200)loadDomains().catch(()=>{})},3000);load().catch(e=>msg(e.message,false));
-</script>
-</body></html>
+        <!-- YYDS Form -->
+        <div id="form-yyds" class="provider-form">
+          <div class="form-grid">
+            <div class="form-field full">
+              <label for="yydsKey">API Key</label>
+              <input id="yydsKey" type="password" placeholder="AC-...">
+              <span id="yydsKeyNote" class="secret-note"></span>
+            </div>
+            <div class="form-field">
+              <label for="yydsDomain">域名</label>
+              <input id="yydsDomain" list="yydsDomainList" value="auto">
+              <datalist id="yydsDomainList"></datalist>
+            </div>
+            <div class="form-field">
+              <label for="yydsPlatform">平台代码</label>
+              <input id="yydsPlatform" list="yydsPlatformList" value="grok">
+              <datalist id="yydsPlatformList"></datalist>
+            </div>
+            <div class="form-field">
+              <label for="yydsConcurrency">邮箱操作并发</label>
+              <input id="yydsConcurrency" type="number" min="1" max="64" value="5">
+            </div>
+            <div class="form-field">
+              <label for="yydsBase">Base URL（高级）</label>
+              <input id="yydsBase" value="https://maliapi.215.im/v1">
+            </div>
+          </div>
+        </div>
+
+        <!-- Cloudflare Temp Email Form -->
+        <div id="form-cloudflare_temp" class="provider-form">
+          <div class="form-grid">
+            <div class="form-field full">
+              <label for="cfBase">Worker 地址</label>
+              <input id="cfBase" placeholder="https://mail.example.workers.dev">
+            </div>
+            <div class="form-field">
+              <label for="cfSiteToken">站点密码 (Site Token)</label>
+              <input id="cfSiteToken" type="password" placeholder="留空保留已存密码">
+              <span id="cfSiteTokenNote" class="secret-note"></span>
+            </div>
+            <div class="form-field">
+              <label for="cfAdminKey">管理员密钥（优先使用）</label>
+              <input id="cfAdminKey" type="password" placeholder="留空保留已存密钥">
+              <span id="cfAdminKeyNote" class="secret-note"></span>
+            </div>
+            <div class="form-field">
+              <label for="cfConcurrency">邮箱操作并发</label>
+              <input id="cfConcurrency" type="number" min="1" max="64" value="10">
+            </div>
+            <div class="form-field">
+              <label>域名行为策略</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="check-inline">
+                  <input id="cfAutoDomain" type="checkbox">
+                  <span>服务端自动选域</span>
+                </label>
+                <label class="check-inline">
+                  <input id="cfRandomSubdomain" type="checkbox">
+                  <span>启用随机子域</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Structured Domain Pool Management -->
+          <div class="domain-section">
+            <div class="domain-section-head">
+              <span class="domain-section-title">Cloudflare 域名池管理</span>
+              <span class="hint" style="margin:0">按顺序轮替分配，支持自动健康熔断与手动启停</span>
+            </div>
+
+            <!-- Bar 1: Add & Sync -->
+            <div class="domain-bar">
+              <div class="domain-bar-group">
+                <input id="newDomain" placeholder="输入新增域名，例如 example.com">
+                <button id="addDomain" type="button" class="btn primary">＋ 添加并启用</button>
+              </div>
+              <div class="domain-bar-group">
+                <button id="fetchDomains" type="button" class="btn">从 Worker 拉取并替换启用列表</button>
+              </div>
+            </div>
+
+            <!-- Bar 2: Filter & Batch Operations -->
+            <div class="domain-bar" style="margin-bottom: 0.75rem;">
+              <div class="domain-bar-group">
+                <input id="domainSearch" placeholder="搜索域名或原因…">
+                <select id="domainStatus">
+                  <option value="">全部状态</option>
+                  <option value="enabled">仅启用</option>
+                  <option value="disabled">仅停用</option>
+                </select>
+              </div>
+              <div class="domain-bar-group">
+                <button id="domainEnable" type="button" class="btn">批量启用</button>
+                <button id="domainDisable" type="button" class="btn">批量停用</button>
+                <button id="domainTest" type="button" class="btn">测试选中</button>
+                <button id="domainDelete" type="button" class="btn danger">永久删除</button>
+              </div>
+            </div>
+
+            <div class="domain-table-wrap">
+              <table class="domain-table">
+                <thead>
+                  <tr>
+                    <th style="width: 40px;"><input id="domainCheckAll" type="checkbox" class="accent-brand-600"></th>
+                    <th>顺序 / 域名</th>
+                    <th>启用状态</th>
+                    <th>成功 / 失败</th>
+                    <th>邮箱健康</th>
+                    <th>最近异常原因 / 时间</th>
+                    <th style="text-align: right;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="domainRows"></tbody>
+              </table>
+              <div id="domainEmpty" class="hint" style="padding: 2.5rem; text-align: center;" hidden>暂无域名，请手动添加或点击「从 Worker 拉取」</div>
+            </div>
+
+            <div class="domain-pager">
+              <span id="domainPageInfo" class="hint" style="margin:0"></span>
+              <div class="domain-bar-group">
+                <label class="hint" style="margin:0">每页
+                  <select id="domainPerPage">
+                    <option>20</option>
+                    <option selected>50</option>
+                    <option>100</option>
+                    <option>200</option>
+                    <option>500</option>
+                    <option>1000</option>
+                    <option>2000</option>
+                  </select>
+                </label>
+                <button id="domainRefresh" type="button" class="btn">刷新</button>
+                <button id="domainPrev" type="button" class="btn">← 上一页</button>
+                <button id="domainNext" type="button" class="btn">下一页 →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <div class="actions-group">
+            <button id="save" class="btn primary">保存配置</button>
+            <button id="activate" class="btn">✓ 设为当前启用服务</button>
+            <button id="fetch" class="btn">拉取域名/平台</button>
+            <button id="test" class="btn">测试当前服务</button>
+            <button id="testAll" class="btn">测试全部域名</button>
+          </div>
+          <div class="actions-group">
+            <button id="clear" class="btn danger">清除本服务凭据</button>
+          </div>
+        </div>
+        <div id="message" class="message"></div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <h2>公共收信设置</h2>
+          <p class="sub">所有邮箱 Provider 共用参数</p>
+        </div>
+        <div class="common">
+          <div class="form-field">
+            <label for="timeout">验证码轮询总超时（秒）</label>
+            <input id="timeout" type="number" min="30" max="600" value="120">
+          </div>
+          <div class="form-field">
+            <label for="proxyMode">邮箱 API 代理模式</label>
+            <select id="proxyMode">
+              <option value="direct">本机直连 (Direct)</option>
+              <option value="register">复用当前注册代理</option>
+              <option value="custom">使用下方单独代理</option>
+              <option value="system">继承系统环境代理</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="proxyUrl">单独代理地址</label>
+            <input id="proxyUrl" placeholder="http://127.0.0.1:7890">
+          </div>
+          <div class="form-field">
+            <label for="tlsVerify">TLS 证书校验</label>
+            <label class="check-inline">
+              <input id="tlsVerify" type="checkbox" checked>
+              <span>严格验证 TLS 证书</span>
+            </label>
+          </div>
+          <div class="warning">关闭 TLS 证书验证可能暴露邮箱凭据，仅应临时用于可信的自建内网实例。</div>
+          <p class="hint" style="line-height: 1.5; margin:0">安全说明：已保存的密钥不会由服务器明文回传。密码输入框留空代表保留原值；点击“清除本服务凭据”才会彻底擦除。</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const providers = ['outlook', 'freemail', 'yyds', 'cloudflare_temp'];
+    const descriptions = {
+      outlook: 'Plus Alias · 多账号 IMAP',
+      freemail: 'idinging /api/generate',
+      yyds: 'maliapi.215.im/v1',
+      cloudflare_temp: 'dreamhunter · 多域轮替'
+    };
+    let model = null, selected = 'cloudflare_temp', domains = [], domainPage = 1, domainTotal = 0, domainTimer = null, domainLastRefresh = '', domainLoadSequence = 0, domainSelectionKey = '';
+    const domainSelection = new Set();
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    async function api(url, options = {}) {
+      const r = await fetch(url, options);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) throw new Error(d.message || `HTTP ${r.status}`);
+      return d;
+    }
+    function msg(text, ok = null) {
+      $('message').textContent = text;
+      $('message').className = 'message ' + (ok === true ? 'ok' : ok === false ? 'bad' : '');
+    }
+    function stateText(s) {
+      return s?.status === 'passed' ? '测试通过' : s?.status === 'failed' ? '测试失败' : '未测试';
+    }
+    function renderCards() {
+      const labels = model.labels, states = model.test_states;
+      $('providerCards').innerHTML = providers.map(p => `
+        <button class="provider-card ${p === selected ? 'selected' : ''} ${p === model.config.provider ? 'active' : ''}" data-p="${p}">
+          <div>
+            <strong>${esc(labels[p])}</strong>
+            <span>${esc(descriptions[p])}</span>
+          </div>
+          <div class="state ${states[p]?.status || ''}">${stateText(states[p])}${states[p]?.tested_at ? ' · ' + new Date(states[p].tested_at).toLocaleString() : ''}</div>
+        </button>`).join('');
+      document.querySelectorAll('.provider-card').forEach(b => b.onclick = () => selectProvider(b.dataset.p));
+    }
+    function selectProvider(p) {
+      selected = p;
+      document.querySelectorAll('.provider-form').forEach(x => x.classList.remove('visible'));
+      $('form-' + p).classList.add('visible');
+      $('formTitle').textContent = model.labels[p];
+      $('formSubtitle').textContent = descriptions[p];
+      $('testAll').style.display = p === 'cloudflare_temp' ? 'inline-flex' : 'none';
+      renderCards();
+    }
+    function secretNote(id, obj, key) {
+      $(id).textContent = obj[key + '_set'] ? `已保存：${obj[key + '_masked'] || '••••••'}；留空保留` : '';
+    }
+    function renderAccounts(accounts) {
+      $('accounts').innerHTML = (accounts || []).map((a, i) => `
+        <div class="account">
+          <div class="account-grid">
+            <div class="form-field"><label>邮箱</label><input data-a="email" data-i="${i}" value="${esc(a.email || '')}"></div>
+            <div class="form-field"><label>应用密码</label><input type="password" data-a="password" data-i="${i}" placeholder="${esc(a.password_masked || '留空保留')}"></div>
+            <div class="form-field"><label>Client ID</label><input data-a="client_id" data-i="${i}" value="${esc(a.client_id || '')}"></div>
+            <div class="form-field"><label>Refresh Token</label><input type="password" data-a="refresh_token" data-i="${i}" placeholder="${esc(a.refresh_token_masked || '留空保留')}"></div>
+            <div class="form-field"><label>Alias 上限</label><input type="number" min="1" max="999" data-a="alias_limit" data-i="${i}" value="${Number(a.alias_limit || 5)}"></div>
+            <button class="btn danger remove" data-remove="${i}" type="button">删除</button>
+          </div>
+        </div>`).join('');
+      document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => {
+        const a = model.config.providers.outlook.accounts;
+        a.splice(Number(b.dataset.remove), 1);
+        renderAccounts(a);
+      });
+    }
+    function readAccounts() {
+      return [...document.querySelectorAll('#accounts .account')].map(row => {
+        const out = {};
+        row.querySelectorAll('[data-a]').forEach(x => out[x.dataset.a] = x.type === 'number' ? Number(x.value) : x.value.trim());
+        return out;
+      }).filter(a => a.email);
+    }
+    function domainSelected() { return [...domainSelection]; }
+    function domainBadge(s) {
+      return s === 'enabled' ? '<span class="badge ok">启用</span>' : '<span class="badge bad">停用</span>';
+    }
+    function clearDomainSelection() {
+      domainSelection.clear();
+      domainSelectionKey = '';
+      document.querySelectorAll('[data-domain-id]').forEach(x => x.checked = false);
+      updateDomainCheckAll();
+    }
+    function updateDomainCheckAll() {
+      const boxes = [...document.querySelectorAll('[data-domain-id]')],
+            checked = boxes.filter(x => x.checked).length;
+      $('domainCheckAll').checked = boxes.length > 0 && checked === boxes.length;
+      $('domainCheckAll').indeterminate = checked > 0 && checked < boxes.length;
+    }
+
+    async function loadDomains() {
+      const sequence = ++domainLoadSequence,
+            per = Number($('domainPerPage').value || 50),
+            query = $('domainSearch').value.trim(),
+            status = $('domainStatus').value;
+      const selectionKey = `${domainPage}\u0000${per}\u0000${query}\u0000${status}`;
+      const d = await api(`/api/domains?page=${domainPage}&per_page=${per}&q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`);
+      if (sequence !== domainLoadSequence) return;
+      if (domainSelectionKey !== selectionKey) domainSelection.clear();
+      domainSelectionKey = selectionKey;
+      const visibleIds = new Set(d.items.map(x => x.id));
+      for (const id of domainSelection) if (!visibleIds.has(id)) domainSelection.delete(id);
+      domainTotal = d.total;
+      domainLastRefresh = new Date().toLocaleTimeString();
+
+      $('domainRows').innerHTML = d.items.map((x, i) => `
+        <tr>
+          <td><input type="checkbox" class="accent-brand-600" data-domain-id="${x.id}" ${domainSelection.has(x.id) ? 'checked' : ''}></td>
+          <td class="font-mono text-xs"><b>#${(d.page - 1) * d.per_page + i + 1}</b> · <span class="text-ink-900 font-semibold">${esc(x.domain)}</span></td>
+          <td>${domainBadge(x.status)}${Number(x.cooldown_until || 0) > Date.now() / 1000 ? '<small class="text-sun-600">冷却中</small>' : ''}${x.disabled_reason ? `<small>${esc(x.disabled_reason)}</small>` : ''}</td>
+          <td class="font-mono text-xs"><span class="text-leaf-600 font-semibold">${Number(x.success_count || 0)}</span> / <span class="text-rose-500">${Number(x.failure_count || 0)}</span>${Number(x.consecutive_failures || 0) ? '<small>连续失败 ' + Number(x.consecutive_failures) + '</small>' : ''}</td>
+          <td><span class="badge ${x.email_health === 'healthy' ? 'ok' : x.email_health === 'unhealthy' ? 'bad' : ''}">${x.email_health === 'healthy' ? '健康' : x.email_health === 'unhealthy' ? '失败' : '未测试'}</span>${x.email_health_message ? `<small>${esc(x.email_health_message)}</small>` : ''}</td>
+          <td>${esc(x.last_failure_message || '—')}${x.last_failure_at ? `<small class="font-mono">${esc(x.last_failure_at)}</small>` : ''}</td>
+          <td style="text-align: right;">
+            <button type="button" class="btn" data-domain-move="${x.id}" data-dir="up">↑</button>
+            <button type="button" class="btn" data-domain-move="${x.id}" data-dir="down">↓</button>
+            <button type="button" class="btn" data-domain-one-test="${x.id}">测试</button>
+            <button type="button" class="btn ${x.status === 'enabled' ? '' : 'primary'}" data-domain-toggle="${x.id}" data-enabled="${x.status === 'enabled' ? 1 : 0}">${x.status === 'enabled' ? '停用' : '启用'}</button>
+          </td>
+        </tr>`).join('');
+
+      $('domainEmpty').hidden = d.items.length !== 0;
+      $('domainPageInfo').textContent = `第 ${d.page} 页 · 共 ${d.total} 条 · ${domainLastRefresh}`;
+      $('domainPrev').disabled = d.page <= 1;
+      $('domainNext').disabled = d.page * d.per_page >= d.total;
+
+      document.querySelectorAll('[data-domain-id]').forEach(box => box.onchange = () => {
+        if (box.checked) domainSelection.add(box.dataset.domainId);
+        else domainSelection.delete(box.dataset.domainId);
+        updateDomainCheckAll();
+      });
+      updateDomainCheckAll();
+      document.querySelectorAll('[data-domain-toggle]').forEach(b => b.onclick = async () => {
+        await api('/api/domains/' + b.dataset.domainToggle, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled: b.dataset.enabled !== '1'})});
+        await loadDomains();
+      });
+      document.querySelectorAll('[data-domain-one-test]').forEach(b => b.onclick = () => testDomains([b.dataset.domainOneTest]));
+      document.querySelectorAll('[data-domain-move]').forEach(b => b.onclick = async () => {
+        await api(`/api/domains/${b.dataset.domainMove}/move`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({direction: b.dataset.dir})});
+        await loadDomains();
+      });
+    }
+
+    async function domainBulk(action) {
+      const ids = domainSelected();
+      if (!ids.length) return msg('请先选择域名', false);
+      if (action === 'delete' && !confirm(`确定永久删除选中的 ${ids.length} 个域名及其全部历史？此操作无法恢复。`)) return;
+      const d = await api('/api/domains/bulk', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids, action})});
+      msg(d.message || `已处理 ${d.changed ?? d.removed ?? 0} 条`, d.failed === undefined || d.failed === 0);
+      await loadDomains();
+    }
+    async function testDomains(ids) {
+      if (!ids.length) return msg('请先选择域名', false);
+      msg(`正在测试 ${ids.length} 个域名…`);
+      const d = await api('/api/domains/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})});
+      msg(`域名测试完成：${d.passed}/${d.total} 通过`, d.passed === d.total);
+      await loadDomains();
+    }
+
+    function populate() {
+      const c = model.config, p = c.providers;
+      $('timeout').value = c.common.timeout_seconds;
+      $('proxyMode').value = c.common.proxy_mode;
+      $('proxyUrl').value = c.common.proxy_url;
+      $('tlsVerify').checked = !!c.common.tls_verify;
+      renderAccounts(p.outlook.accounts);
+      $('outlookDefaultLimit').value = p.outlook.default_alias_limit;
+      $('outlookConcurrency').value = p.outlook.concurrency;
+      $('freemailBase').value = p.freemail.base_url;
+      $('freemailDomain').value = p.freemail.domain;
+      $('freemailConcurrency').value = p.freemail.concurrency;
+      secretNote('freemailTokenNote', p.freemail, 'token');
+      $('yydsBase').value = p.yyds.base_url;
+      $('yydsDomain').value = p.yyds.domain;
+      $('yydsPlatform').value = p.yyds.platform_code;
+      $('yydsConcurrency').value = p.yyds.concurrency;
+      secretNote('yydsKeyNote', p.yyds, 'api_key');
+      $('cfBase').value = p.cloudflare_temp.base_url;
+      $('cfConcurrency').value = p.cloudflare_temp.concurrency;
+      $('cfAutoDomain').checked = !!p.cloudflare_temp.auto_domain;
+      $('cfRandomSubdomain').checked = !!p.cloudflare_temp.random_subdomain;
+      domains = [...(p.cloudflare_temp.domains || [])];
+      secretNote('cfSiteTokenNote', p.cloudflare_temp, 'site_token');
+      secretNote('cfAdminKeyNote', p.cloudflare_temp, 'admin_key');
+    }
+
+    function payload() {
+      return {
+        common: {
+          timeout_seconds: Number($('timeout').value),
+          proxy_mode: $('proxyMode').value,
+          proxy_url: $('proxyUrl').value.trim(),
+          tls_verify: $('tlsVerify').checked
+        },
+        providers: {
+          outlook: {
+            accounts: readAccounts(),
+            default_alias_limit: Number($('outlookDefaultLimit').value),
+            concurrency: Number($('outlookConcurrency').value)
+          },
+          freemail: {
+            base_url: $('freemailBase').value.trim(),
+            token: $('freemailToken').value,
+            domain: $('freemailDomain').value.trim() || 'auto',
+            concurrency: Number($('freemailConcurrency').value)
+          },
+          yyds: {
+            base_url: $('yydsBase').value.trim(),
+            api_key: $('yydsKey').value,
+            domain: $('yydsDomain').value.trim() || 'auto',
+            platform_code: $('yydsPlatform').value.trim() || 'grok',
+            concurrency: Number($('yydsConcurrency').value)
+          },
+          cloudflare_temp: {
+            base_url: $('cfBase').value.trim(),
+            site_token: $('cfSiteToken').value,
+            admin_key: $('cfAdminKey').value,
+            domains,
+            auto_domain: $('cfAutoDomain').checked,
+            random_subdomain: $('cfRandomSubdomain').checked,
+            concurrency: Number($('cfConcurrency').value)
+          }
+        }
+      };
+    }
+
+    async function load() {
+      model = await api('/api/email-config');
+      selected = model.config.provider;
+      populate();
+      selectProvider(selected);
+      await loadDomains();
+      if (model.running) {
+        document.querySelectorAll('.actions button,.provider-form input,.provider-form select,aside input,aside select').forEach(x => x.disabled = true);
+        ['domainEnable', 'domainDisable', 'domainRefresh', 'domainPrev', 'domainNext', 'domainCheckAll', 'domainSearch', 'domainStatus', 'domainPerPage'].forEach(id => $(id).disabled = false);
+        $('domainDelete').disabled = true;
+        document.querySelectorAll('[data-domain-toggle],[data-domain-id]').forEach(x => x.disabled = false);
+        document.querySelectorAll('[data-domain-move],[data-domain-one-test]').forEach(x => x.disabled = true);
+        msg('注册任务运行中：整体域名列表已锁定，只允许启停已有域名（仅影响后续新邮箱）', false);
+      }
+    }
+
+    async function save() {
+      msg('正在保存…');
+      const d = await api('/api/email-config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload())});
+      model.config = d.config;
+      model.test_states = d.test_states;
+      populate();
+      renderCards();
+      msg(d.message, true);
+    }
+
+    async function fetchMeta() {
+      msg('正在使用已保存的配置拉取…');
+      const d = await api('/api/email-config/domains?provider=' + selected);
+      const items = d.domains || [];
+      if (selected === 'cloudflare_temp') {
+        const values = items.map(x => typeof x === 'string' ? x : (x.domain || x.name || ''));
+        const imported = await api('/api/domains', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({domains: values, replace: true})});
+        domainPage = 1;
+        $('domainSearch').value = '';
+        $('domainStatus').value = '';
+        clearDomainSelection();
+        await loadDomains();
+        msg(imported.message, true);
+      } else {
+        const list = $(selected === 'freemail' ? 'freemailDomainList' : 'yydsDomainList');
+        list.innerHTML = '<option value="auto">' + items.map(x => `<option value="${esc(typeof x === 'string' ? x : (x.domain || x.name || x.code || ''))}">`).join('');
+        if (selected === 'yyds') $('yydsPlatformList').innerHTML = (d.platforms || []).map(x => `<option value="${esc(typeof x === 'string' ? x : (x.code || x.platformCode || x.name || ''))}">`).join('');
+        msg(d.message || '拉取完成', true);
+      }
+    }
+
+    async function addDomain(value) {
+      const domain = String(value || $('newDomain').value).trim().toLowerCase();
+      if (!domain) return;
+      const d = await api('/api/domains', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({domain})});
+      $('newDomain').value = '';
+      msg(d.message, true);
+      await loadDomains();
+    }
+
+    async function runTest(all = false) {
+      await save();
+      msg('正在执行真实连接测试…');
+      const d = await api('/api/email-config/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({provider: selected, test_all_domains: all})});
+      model.test_states[selected] = d.test_state;
+      renderCards();
+      msg(d.message, true);
+    }
+
+    async function activate() {
+      await save();
+      const d = await api('/api/email-config/activate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({provider: selected})});
+      model.config.provider = d.provider;
+      renderCards();
+      msg(d.message, true);
+    }
+
+    async function clearConfig() {
+      if (!confirm(`确定清除 ${model.labels[selected]} 的全部配置和凭据？`)) return;
+      const d = await api('/api/email-config/' + selected, {method: 'DELETE'});
+      msg(d.message, true);
+      await load();
+    }
+
+    $('addAccount').onclick = () => {
+      model.config.providers.outlook.accounts.push({email: '', password: '', refresh_token: '', client_id: '', alias_limit: Number($('outlookDefaultLimit').value || 5)});
+      renderAccounts(model.config.providers.outlook.accounts);
+    };
+    $('addDomain').onclick = () => addDomain().catch(e => msg(e.message, false));
+    $('fetchDomains').onclick = () => fetchMeta().catch(e => msg(e.message, false));
+    $('fetch').onclick = () => fetchMeta().catch(e => msg(e.message, false));
+    $('save').onclick = () => save().catch(e => msg(e.message, false));
+    $('test').onclick = () => runTest(false).catch(e => msg(e.message, false));
+    $('testAll').onclick = () => runTest(true).catch(e => msg(e.message, false));
+    $('activate').onclick = () => activate().catch(e => msg(e.message, false));
+    $('clear').onclick = () => clearConfig().catch(e => msg(e.message, false));
+    $('domainEnable').onclick = () => domainBulk('enable').catch(e => msg(e.message, false));
+    $('domainDisable').onclick = () => domainBulk('disable').catch(e => msg(e.message, false));
+    $('domainDelete').onclick = () => domainBulk('delete').catch(e => msg(e.message, false));
+    $('domainTest').onclick = () => testDomains(domainSelected()).catch(e => msg(e.message, false));
+    $('domainCheckAll').onchange = e => {
+      document.querySelectorAll('[data-domain-id]').forEach(x => {
+        x.checked = e.target.checked;
+        if (e.target.checked) domainSelection.add(x.dataset.domainId);
+        else domainSelection.delete(x.dataset.domainId);
+      });
+      e.target.indeterminate = false;
+    };
+    $('domainPrev').onclick = () => { domainPage--; clearDomainSelection(); loadDomains(); };
+    $('domainNext').onclick = () => { domainPage++; clearDomainSelection(); loadDomains(); };
+    $('domainRefresh').onclick = loadDomains;
+    $('domainPerPage').value = localStorage.getItem('domainPerPage') || '50';
+    $('domainPerPage').onchange = () => {
+      localStorage.setItem('domainPerPage', $('domainPerPage').value);
+      domainPage = 1;
+      clearDomainSelection();
+      loadDomains();
+    };
+    $('domainSearch').oninput = () => {
+      clearDomainSelection();
+      clearTimeout(domainTimer);
+      domainTimer = setTimeout(() => { domainPage = 1; loadDomains(); }, 300);
+    };
+    $('domainStatus').onchange = () => { domainPage = 1; clearDomainSelection(); loadDomains(); };
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && Number($('domainPerPage').value) <= 200) loadDomains().catch(() => {});
+    });
+    setInterval(() => {
+      if (!document.hidden && Number($('domainPerPage').value) <= 200) loadDomains().catch(() => {});
+    }, 3000);
+    load().catch(e => msg(e.message, false));
+  </script>
+</body>
+</html>
