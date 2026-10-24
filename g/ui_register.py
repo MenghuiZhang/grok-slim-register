@@ -874,6 +874,7 @@ def wait_turnstile(page, seconds: float = TURNSTILE_POLL_SECONDS) -> bool:
 def click_turnstile_macos(
     page,
     *,
+    shot_dir: Optional[Path] = None,
     poll_seconds: float = TURNSTILE_POLL_SECONDS,
     max_candidates: int = 5,
 ) -> str:
@@ -942,7 +943,8 @@ def click_turnstile_macos(
             log(f"坐标点击失败: {exc}")
             continue
         try:
-            page.screenshot(path=f"logs/ui_register/turnstile-{tag}-{vx}-{vy}.png")
+            if shot_dir is not None:
+                page.screenshot(path=str(shot_dir / f"turnstile-{tag}-{vx}-{vy}.png"))
         except Exception:
             pass
         solved = wait_turnstile(page, poll_seconds)
@@ -1025,6 +1027,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         "steps": [],
         "error": "",
     }
+    # 本轮截图独立子目录（成功收尾时整体删除；失败保留供排障）。
+    # 早期失败（创邮箱等）尚未创建，保持 None，flush_result 里自动跳过。
+    shot_dir: Optional[Path] = None
 
     def flush_result(exit_code: int) -> int:
         """把 result JSON 落盘后返回退出码；早期失败路径与正常收尾共用。
@@ -1041,6 +1046,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         log(f"结果已写入 {out_path}")
         log("成功" if result["ok"] else f"失败：{result['error']}")
+        if result["ok"] and shot_dir is not None:
+            shutil.rmtree(shot_dir, ignore_errors=True)
         return exit_code
 
     email = args.email.strip()
@@ -1092,7 +1099,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     log(f"邮箱 {email}")
     log(f"密码 {password}")
 
-    shot_dir = Path(args.shot_dir) if args.shot_dir else Path("logs") / "ui_register"
+    shot_dir = (
+        Path(args.shot_dir) / f"round-{uuid.uuid4().hex[:8]}"
+        if args.shot_dir
+        else Path("logs") / "ui_register" / f"round-{uuid.uuid4().hex[:8]}"
+    )
     shot_dir.mkdir(parents=True, exist_ok=True)
 
     from camoufox.sync_api import Camoufox
@@ -1349,7 +1360,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     shot(page, "08-password-empty")
             else:
                 # 主动点击 checkbox（按钮相对定位 + 坐标兜底，点击后只等待不重复点）
-                clicked = click_turnstile_macos(page)
+                clicked = click_turnstile_macos(page, shot_dir=shot_dir)
                 log(f"Turnstile 点击: {clicked}")
                 result["steps"].append(f"turnstile:click:{clicked}")
                 solved = turnstile_solved(page) or wait_turnstile(page, 6.0)
