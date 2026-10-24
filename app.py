@@ -4111,6 +4111,13 @@ def proxy_pool_delete():
     return jsonify({"ok": True, **result})
 
 
+@app.post("/api/proxies/dedupe")
+def proxy_pool_dedupe():
+    """按 spec 全库去重，每组保留列表顺序第一条。"""
+    result = proxy_pool.dedupe()
+    return jsonify({"ok": True, **result})
+
+
 @app.post("/api/proxies/<proxy_id>/move")
 def proxy_pool_move(proxy_id: str):
     direction = str((request.get_json(silent=True) or {}).get("direction") or "")

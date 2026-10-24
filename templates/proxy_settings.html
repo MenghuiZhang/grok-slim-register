@@ -316,6 +316,7 @@
           <button id="setConcurrencySelected" class="btn">设置并发</button>
           <button id="testSelected" class="btn">连通测试</button>
           <button id="deleteSelected" class="btn danger">批量删除</button>
+          <button id="dedupeBtn" class="btn danger">删除重复</button>
         </div>
       </div>
 
@@ -607,6 +608,22 @@
       const d = await api('/api/proxies/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})});
       msg('listMessage', `已删除 ${d.removed}，待释放 ${d.pending}`, true);
       await load();
+    };
+    $('dedupeBtn').onclick = async () => {
+      if (!confirm('全库去重：相同代理地址（含协议/账号/端口）只保留列表顺序第一条，其余删除。占用中的重复项会标记停用、待注册释放后自动清理。确定继续？')) return;
+      msg('listMessage', '正在去重…');
+      try {
+        const d = await api('/api/proxies/dedupe', {method: 'POST', headers: {'Content-Type': 'application/json'}});
+        if (!d.removed && !d.pending) {
+          msg('listMessage', '没有发现重复代理', true);
+        } else {
+          msg('listMessage', `去重完成：已删除 ${d.removed}，待释放 ${d.pending}`, true);
+        }
+        await load();
+      } catch (e) {
+        msg('listMessage', e.message, false);
+        await load();
+      }
     };
 
     $('checkAll').onchange = e => {

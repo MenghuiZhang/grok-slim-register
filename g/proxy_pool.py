@@ -406,6 +406,35 @@ class ProxyPool:
             self._cv.notify_all()
             return {"removed": removed, "pending": pending}
 
+    def dedupe(self) -> dict[str, int]:
+        """按 spec 精确去重，每组保留列表顺序第一条。
+
+        重复项与批量删除同规则：空闲直接删，占用中（in_use > 0）标记
+        pending_delete 并停用，租约释放后自动清理，不打断进行中的注册。
+        """
+        with self._cv:
+            removed = pending = 0
+            kept: list[dict[str, Any]] = []
+            seen_specs: set[str] = set()
+            for item in self._data["proxies"]:
+                if not item.get("pending_delete") and item["spec"] in seen_specs:
+                    rt = self._runtime.setdefault(item["id"], self._new_runtime())
+                    if rt["in_use"]:
+                        item["pending_delete"] = True
+                        item["enabled"] = False
+                        kept.append(item)
+                        pending += 1
+                    else:
+                        self._runtime.pop(item["id"], None)
+                        removed += 1
+                    continue
+                seen_specs.add(item["spec"])
+                kept.append(item)
+            self._data["proxies"] = kept
+            self._save_locked()
+            self._cv.notify_all()
+            return {"removed": removed, "pending": pending}
+
     def move(self, proxy_id: str, direction: str) -> None:
         with self._cv:
             items = self._data["proxies"]
