@@ -4195,7 +4195,7 @@ def proxy_pool_delete():
 
 @app.post("/api/proxies/dedupe")
 def proxy_pool_dedupe():
-    """按 spec 全库去重，每组保留列表顺序第一条。"""
+    """全库去重：先按 spec，再按出口 IP，各组保留一条。"""
     result = proxy_pool.dedupe()
     return jsonify({"ok": True, **result})
 

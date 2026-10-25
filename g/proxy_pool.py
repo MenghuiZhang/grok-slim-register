@@ -407,33 +407,83 @@ class ProxyPool:
             return {"removed": removed, "pending": pending}
 
     def dedupe(self) -> dict[str, int]:
-        """按 spec 精确去重，每组保留列表顺序第一条。
+        """全库去重：先按 spec，再按出口 IP，各组保留一条。
 
-        重复项与批量删除同规则：空闲直接删，占用中（in_use > 0）标记
-        pending_delete 并停用，租约释放后自动清理，不打断进行中的注册。
+        spec（协议/账号/主机/端口）相同只保留列表顺序第一条；出口 IP 相同
+        只保留一条，优先保留健康且启用的（出口 IP 由连通测试写入运行时，
+        未测试的节点不参与这一轮）。重复项与批量删除同规则：空闲直接删，
+        占用中（in_use > 0）标记 pending_delete 并停用，租约释放后自动清理，
+        不打断进行中的注册。
         """
         with self._cv:
-            removed = pending = 0
+            removed_spec = pending_spec = removed_egress = pending_egress = 0
             kept: list[dict[str, Any]] = []
             seen_specs: set[str] = set()
             for item in self._data["proxies"]:
                 if not item.get("pending_delete") and item["spec"] in seen_specs:
-                    rt = self._runtime.setdefault(item["id"], self._new_runtime())
-                    if rt["in_use"]:
-                        item["pending_delete"] = True
-                        item["enabled"] = False
+                    removed, pending = self._retire_duplicate_locked(item)
+                    removed_spec += removed
+                    pending_spec += pending
+                    if pending:
                         kept.append(item)
-                        pending += 1
-                    else:
-                        self._runtime.pop(item["id"], None)
-                        removed += 1
                     continue
                 seen_specs.add(item["spec"])
                 kept.append(item)
             self._data["proxies"] = kept
+
+            groups: dict[str, list[int]] = {}
+            for idx, item in enumerate(self._data["proxies"]):
+                if item.get("pending_delete"):
+                    continue
+                rt = self._runtime.setdefault(item["id"], self._new_runtime())
+                ip = str(rt.get("egress_ip") or "").strip()
+                if ip:
+                    groups.setdefault(ip, []).append(idx)
+            drop: set[int] = set()
+            now = time.time()
+            for idxs in groups.values():
+                if len(idxs) < 2:
+                    continue
+                keep = min(idxs, key=lambda i: self._egress_rank(i, now))
+                drop.update(i for i in idxs if i != keep)
+            if drop:
+                survivors: list[dict[str, Any]] = []
+                for idx, item in enumerate(self._data["proxies"]):
+                    if idx not in drop:
+                        survivors.append(item)
+                        continue
+                    removed, pending = self._retire_duplicate_locked(item)
+                    removed_egress += removed
+                    pending_egress += pending
+                    if pending:
+                        survivors.append(item)
+                self._data["proxies"] = survivors
+
             self._save_locked()
             self._cv.notify_all()
-            return {"removed": removed, "pending": pending}
+            return {
+                "removed": removed_spec + removed_egress,
+                "pending": pending_spec + pending_egress,
+                "removed_by_spec": removed_spec,
+                "removed_by_egress": removed_egress,
+            }
+
+    def _retire_duplicate_locked(self, item: dict[str, Any]) -> tuple[int, int]:
+        """移除一条空闲重复项；占用中则标记 pending_delete 并停用，留在原列表。"""
+        rt = self._runtime.setdefault(item["id"], self._new_runtime())
+        if rt["in_use"]:
+            item["pending_delete"] = True
+            item["enabled"] = False
+            return 0, 1
+        self._runtime.pop(item["id"], None)
+        return 1, 0
+
+    def _egress_rank(self, idx: int, now: float) -> tuple[int, int]:
+        """出口去重的保留优先级：健康且启用在前，同优先级列表顺序靠前优先。"""
+        item = self._data["proxies"][idx]
+        rt = self._runtime.setdefault(item["id"], self._new_runtime())
+        preferred = item.get("enabled") and rt["health"] == "healthy" and rt["cooldown_until"] <= now
+        return (0 if preferred else 1, idx)
 
     def move(self, proxy_id: str, direction: str) -> None:
         with self._cv:

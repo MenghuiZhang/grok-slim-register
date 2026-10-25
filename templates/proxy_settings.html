@@ -610,14 +610,14 @@
       await load();
     };
     $('dedupeBtn').onclick = async () => {
-      if (!confirm('全库去重：相同代理地址（含协议/账号/端口）只保留列表顺序第一条，其余删除。占用中的重复项会标记停用、待注册释放后自动清理。确定继续？')) return;
+      if (!confirm('全库去重，各组只保留一条：\n\n1. 相同代理地址（含协议/账号/端口）保留列表顺序第一条；\n2. 相同出口 IP 优先保留健康且启用的那条（仅对已测出出口 IP 的代理生效，未测试的请先「连通测试」）。\n\n占用中的重复项会标记停用、待注册释放后自动清理。确定继续？')) return;
       msg('listMessage', '正在去重…');
       try {
         const d = await api('/api/proxies/dedupe', {method: 'POST', headers: {'Content-Type': 'application/json'}});
         if (!d.removed && !d.pending) {
-          msg('listMessage', '没有发现重复代理', true);
+          msg('listMessage', '没有发现重复代理（出口 IP 去重仅覆盖已测试的代理）', true);
         } else {
-          msg('listMessage', `去重完成：已删除 ${d.removed}，待释放 ${d.pending}`, true);
+          msg('listMessage', `去重完成：已删除 ${d.removed}（地址重复 ${d.removed_by_spec} · 出口 IP 重复 ${d.removed_by_egress}），待释放 ${d.pending}`, true);
         }
         await load();
       } catch (e) {
