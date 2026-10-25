@@ -495,9 +495,9 @@
                 </div>
                 </div>
 
-                <!-- 换票申请代理（device/code + token 轮询） -->
+                <!-- 换票代理模式（device flow 整链路） -->
                 <div class="cfg-block">
-                  <h3 class="cfg-title">换票申请代理（device/code）</h3>
+                  <h3 class="cfg-title">换票代理（device flow）</h3>
                   <div>
                     <label class="field-label">代理模式</label>
                     <div class="c-select" data-select="dcpMode">
@@ -512,7 +512,7 @@
                       <label class="field-label" for="dcpUrl">代理 URL</label>
                       <input id="dcpUrl" class="field font-mono text-sm" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false" />
                     </div>
-                    <p class="hint">仅 device code 申请与 token 轮询走此代理；浏览器批准页仍走注册节点。机场按域名拦截 auth.x.ai 时选「本机直连」。</p>
+                    <p class="hint" id="dcpHint">与注册相同代理：注册浏览器内顺手换票，全链路走注册节点。</p>
                   </div>
                 </div>
 
@@ -805,8 +805,13 @@
 
     const DCP_LABELS = {
       auto: '与注册相同代理（默认）',
-      direct: '本机直连',
-      specific: '特定代理',
+      direct: '本机直连（独立换票）',
+      specific: '特定代理（独立换票）',
+    };
+    const DCP_HINTS = {
+      auto: '与注册相同代理：注册浏览器内顺手换票，全链路走注册节点。',
+      direct: '本机直连：关闭浏览器内换票，注册后注入 SSO 独立换票，全链路直连（绕开机场对 auth.x.ai 的拦截）。',
+      specific: '特定代理：关闭浏览器内换票，注册后注入 SSO 独立换票，全链路走该代理。',
     };
     const dcpModeSelect = initSelect(
       document.querySelector('[data-select="dcpMode"]'),
@@ -814,6 +819,7 @@
       'auto',
       (val) => {
         $('dcpUrlWrap').classList.toggle('hidden', val !== 'specific');
+        if ($('dcpHint')) $('dcpHint').textContent = DCP_HINTS[val] || DCP_HINTS.auto;
       }
     );
 
@@ -1215,7 +1221,7 @@
         if ($('cfgAccountList')) $('cfgAccountList').value = c.OUTLOOK_ACCOUNTS || '';
         if ($('cfgAliasLimit')) $('cfgAliasLimit').value = c.OUTLOOK_ALIAS_LIMIT || '5';
 
-        // 换票申请代理：mode 回显；specific 时 URL 输入框留空（服务端只回打码值，重填才更新）
+        // 换票代理：mode 回显；specific 时 URL 输入框留空（服务端只回打码值，重填才更新）
         const dcp = data.device_code_proxy || {};
         const dcpMode = ['auto', 'direct', 'specific'].includes(dcp.mode) ? dcp.mode : 'auto';
         dcpModeSelect._setValue(dcpMode, true);
@@ -1224,6 +1230,7 @@
           ? `当前：${dcp.url_masked}（重填以更新）`
           : 'http://user:pass@host:port';
         $('dcpUrlWrap').classList.toggle('hidden', dcpMode !== 'specific');
+        if ($('dcpHint')) $('dcpHint').textContent = DCP_HINTS[dcpMode] || DCP_HINTS.auto;
 
         setMessage($('configMessage'), '已加载当前配置', true);
         if ($('proxyTestMessage')) {

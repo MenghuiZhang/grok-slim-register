@@ -62,7 +62,7 @@ python -m camoufox fetch
 | `GROK_SUBMIT_NAV_TIMEOUT` | 提交邮箱后等待进入验证码页的秒数（默认 20；期间持续检测报错文本，命中立即放弃） |
 | `GROK_AUTO_EXCHANGE_TOKEN` | `1` 注册成功后自动换 token（默认）/ `0` 关闭；取消勾选会同时落盘保存 |
 | `GROK_BROWSER_CONVERT` | `1` 注册浏览器内顺手换票（默认）/ `0` 关闭；取消勾选「自动换 token」时自动置 0 |
-| `GROK_DEVICE_CODE_PROXY` | 换票匿名 HTTP 步骤（device/code + token 轮询）的代理：`auto` 与注册节点一致（默认）/ `direct` 强制直连 / `http://user:pass@host:port` 特定代理；浏览器批准页不受影响，始终走注册节点。配置页「换票申请代理」可视化设置 |
+| `GROK_DEVICE_CODE_PROXY` | 换票代理模式（device flow 整链路）：`auto` 与注册节点一致，注册浏览器内顺手换票（默认）/ `direct` 关闭浏览器内换票，注册后注入 SSO 独立换票、全链路直连 / `http://user:pass@host:port` 独立换票走特定代理。机场按域名拦截 auth.x.ai 时选 direct/specific。配置页「换票代理」可视化设置 |
 | `SUB2API_*` / `UPSTREAM_*` | 导入下游配置（也可在控制台里改） |
 
 `data/domain_pool.json`、`data/proxy_pool.json` 为运行时状态，由控制台维护，不需要手填。
