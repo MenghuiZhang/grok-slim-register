@@ -275,6 +275,8 @@ class RegisterRunner:
         self.success_count = 0
         self.fail_count = 0
         self.output_file = ""
+        # 本批次 keys 文件（相对 BASE_DIR），start() 时生成；成功账号逐行追加
+        self.keys_file = ""
         # 池里有节点但都被占用时，最多等这么久再跳过该轮（0 = 不等待）
         try:
             self.proxy_lease_wait = max(
@@ -327,6 +329,7 @@ class RegisterRunner:
             ).strip().lower()
             self.auto_exchange_token = raw_exchange not in ("0", "false", "no", "off")
             self.output_file = ""
+            self.keys_file = f"keys/batch-{time.strftime('%Y%m%d-%H%M%S')}-{self.target_count}.txt"
             count = min(self.workers, self.target_count)
             self._threads = [
                 threading.Thread(
@@ -382,6 +385,7 @@ class RegisterRunner:
                 "elapsed": round(elapsed, 1),
                 "avg_seconds": round(elapsed / done, 1) if done else 0.0,
                 "output_file": self.output_file,
+                "keys_file": self.keys_file,
                 "error_message": self.error_message,
                 "register_mode": "ui",
                 "risk_check_enabled": False,
@@ -792,6 +796,7 @@ class RegisterRunner:
                     account["proxy"] = ""
                     account["proxy_mode"] = "direct"
                 self._persist_result(account)
+                self._append_keys_file(account)
             if code == 0 and account:
                 with self._lock:
                     self.success_count += 1
@@ -970,6 +975,33 @@ class RegisterRunner:
                     finalize = True
             if finalize:
                 self._finalize(seq)
+
+    def _append_keys_file(self, account: dict) -> None:
+        """成功账号追加进本批次 keys 文件：email----sso----refresh_token。
+
+        refresh_token 是一次性交接物（xAI 轮换制，下游 grok2api 导入即作废旧值），
+        access_token 几小时就过期且 register_sso/*.json 里已有，不落盘。
+        行按实际拥有段数写：纯 sso 两段，有 refresh 三段。
+        """
+        rel_path = str(self.keys_file or "")
+        if not rel_path:
+            return
+        sso = str(account.get("sso") or "").strip()
+        if not sso:
+            return
+        email = str(account.get("email") or "").strip()
+        token = account.get("auth_token")
+        refresh = str(token.get("refresh_token") or "").strip() if isinstance(token, dict) else ""
+        line = f"{email}----{sso}" + (f"----{refresh}" if refresh else "")
+        path = BASE_DIR / rel_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with self.file_lock:
+                with open(path, "a", encoding="utf-8") as fh:
+                    fh.write(line + "\n")
+            self._log(f"已追加 {rel_path}: {email or '（无邮箱）'}", "info")
+        except Exception as exc:
+            self._log(f"keys 文件写入失败（{rel_path}）: {exc}", "warn")
 
     def _persist_result(self, account: dict) -> None:
         """把 token / token_status 回写到 register_sso/*.json，便于后续直接复用。"""
@@ -2183,26 +2215,32 @@ def test_upstream_connectivity(
     }
 
 
-def _parse_sso_import_lines(sso_lines: list[str]) -> list[tuple[str, str]]:
-    """解析 email----sso / 纯 sso 行，返回 [(email, sso), ...]。"""
-    out: list[tuple[str, str]] = []
+def _parse_sso_import_lines(sso_lines: list[str]) -> list[tuple[str, str, str]]:
+    """解析 email----sso----refresh_token / email----sso / 纯 sso 行。
+
+    ---- 分隔按位取：0=email、1=sso、2=refresh_token，缺段留空。
+    两段冒号格式（email:sso）保持兼容。返回 [(email, sso, refresh), ...]。
+    """
+    out: list[tuple[str, str, str]] = []
     for raw in sso_lines or []:
         for line in str(raw or "").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             email = ""
+            refresh = ""
             sso = line
             if "----" in line:
                 parts = line.split("----")
                 email = parts[0].strip()
-                sso = parts[-1].strip()
+                sso = parts[1].strip() if len(parts) > 1 else ""
+                refresh = parts[2].strip() if len(parts) > 2 else ""
             elif ":" in line and not line.startswith("eyJ"):
                 parts = line.rsplit(":", 1)
                 email = parts[0].strip()
                 sso = parts[-1].strip()
             if sso:
-                out.append((email, sso))
+                out.append((email, sso, refresh))
     return out
 
 
@@ -2237,7 +2275,7 @@ def _normalize_import_accounts(
             )
 
     if sso_lines:
-        for email, sso in _parse_sso_import_lines(sso_lines):
+        for email, sso, refresh in _parse_sso_import_lines(sso_lines):
             sso = (sso or "").strip()
             if not sso or sso in seen_sso:
                 continue
@@ -2246,7 +2284,7 @@ def _normalize_import_accounts(
                 {
                     "email": (email or "").strip(),
                     "sso": sso,
-                    "auth_token": None,
+                    "auth_token": {"access_token": "", "refresh_token": refresh} if refresh else None,
                 }
             )
     return out
@@ -4415,7 +4453,7 @@ def _accounts_from_text(text: str, *, source: str) -> tuple[list[dict], list[dic
     accounts: list[dict] = []
     errors: list[dict] = []
     lines = [line.strip() for line in str(text or "").splitlines() if line.strip() and not line.strip().startswith("#")]
-    for index, (email, sso) in enumerate(_parse_sso_import_lines(lines), start=1):
+    for index, (email, sso, refresh) in enumerate(_parse_sso_import_lines(lines), start=1):
         if not sso:
             errors.append({"row": index, "error": "缺少 SSO"})
             continue
@@ -4423,7 +4461,7 @@ def _accounts_from_text(text: str, *, source: str) -> tuple[list[dict], list[dic
             "id": uuid.uuid4().hex,
             "email": str(email or "").strip(),
             "sso": str(sso).strip(),
-            "auth_token": None,
+            "auth_token": {"access_token": "", "refresh_token": refresh} if refresh else None,
             "clean": None,
             "source": source,
         })
@@ -4890,15 +4928,22 @@ def upstream_import():
             if it.get("sso") and isinstance(it.get("auth_token"), dict)
         }
         accounts = []
-        for email, sso in _parse_sso_import_lines(sso_lines):
+        for email, sso, refresh in _parse_sso_import_lines(sso_lines):
             sso = (sso or "").strip()
             if not sso:
                 continue
+            cached = token_by_sso.get(sso)
+            if isinstance(cached, dict) and cached.get("refresh_token"):
+                token = cached
+            elif refresh:
+                token = {"access_token": "", "refresh_token": refresh}
+            else:
+                token = None
             accounts.append(
                 {
                     "email": email,
                     "sso": sso,
-                    "auth_token": token_by_sso.get(sso),
+                    "auth_token": token,
                 }
             )
         result = import_sso_to_upstream(

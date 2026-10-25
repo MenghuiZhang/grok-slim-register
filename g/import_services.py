@@ -1043,6 +1043,11 @@ class ImportJobManager:
         force = bool(job.get("force_refresh"))
         if token and is_auth_token_usable(token) and not force:
             return token, "registration-cache"
+        # device flow 已不可用（approve 403）。有 refresh_token 时放行过期 token：
+        # grok2api Build 导入只要求 refresh_token，由网关侧自行验证并轮换；
+        # 纯 access_token 过期的没有可续的凭据，继续走 device flow 兜底。
+        if token and str(token.get("refresh_token") or "").strip():
+            return token, "refresh-token"
         # Reuse an existing valid CPA file before starting device flow.
         from convert_sso_json import SSORecord, cpa_path_for_record, load_cpa_token
 
