@@ -108,6 +108,33 @@ def _sso_preview(sso: object) -> str:
     return (text[:10] + "…" + text[-6:]) if len(text) > 20 else ("已读取" if text else "")
 
 
+def _device_code_proxy_override() -> tuple[str, str | None]:
+    """解析换票匿名 HTTP 步骤（device/code、token 轮询）的代理配置。
+
+    返回 ``(mode, override)``：mode 为 auto/direct/specific；
+    override 为传给 ``sso_device_flow_to_token`` 的 ``http_proxy_override``：
+    auto → None（跟随注册节点），direct → "direct"，specific → 代理 URL。
+    """
+    raw = str(os.getenv("GROK_DEVICE_CODE_PROXY", "") or "").strip()
+    if not raw or raw.lower() in ("auto", "same", "register"):
+        return "auto", None
+    if raw.lower() in ("direct", "local", "none"):
+        return "direct", "direct"
+    return "specific", raw
+
+
+def _device_code_proxy_config_view(cfg: dict) -> dict:
+    """/api/config 回显：mode + 打码后的 URL（specific 时）。"""
+    mode, url = _device_code_proxy_override()
+    masked = ""
+    if mode == "specific" and url:
+        try:
+            masked = mask_proxy(url)
+        except Exception:
+            masked = url[:12] + "…" if len(url) > 12 else "***"
+    return {"mode": mode, "url_masked": masked}
+
+
 def _lease_token_proxy(account: dict) -> tuple[str | None, object | None, str]:
     """换票节点：优先复用账号记录的注册节点，其次从代理池租一个。
 
@@ -922,6 +949,7 @@ class RegisterRunner:
                         timeout=self.TOKEN_EXCHANGE_TIMEOUT,
                         issue_token=True,
                         proxy_spec=proxy_spec,
+                        http_proxy_override=_device_code_proxy_override()[1],
                         log=self._log,
                     )
                 finally:
@@ -1062,6 +1090,7 @@ CONFIG_KEYS = (
     "UPSTREAM_ADMIN_EMAIL",
     "UPSTREAM_ADMIN_PASSWORD",
     "GROK_AUTO_EXCHANGE_TOKEN",
+    "GROK_DEVICE_CODE_PROXY",
     "EMAIL_TYPE",
     "OUTLOOK_ACCOUNTS",
     "OUTLOOK_ALIAS_LIMIT",
@@ -1091,6 +1120,9 @@ DEFAULTS = {
     "UPSTREAM_ADMIN_EMAIL": "",
     "UPSTREAM_ADMIN_PASSWORD": "",
     "GROK_AUTO_EXCHANGE_TOKEN": "1",
+    # device code 申请与 token 轮询（匿名 HTTP 步骤）的代理模式：
+    # auto=与注册节点一致（默认）/ direct=强制直连 / http://...=特定代理 URL
+    "GROK_DEVICE_CODE_PROXY": "auto",
     "EMAIL_TYPE": "freemail",
     "OUTLOOK_ACCOUNTS": "",
     "OUTLOOK_ALIAS_LIMIT": "5",
@@ -2443,7 +2475,11 @@ def import_sso_to_upstream(
         for attempt in range(1, max_attempts + 1):
             # 导入必须真正换票；覆盖全局诊断开关 GROK_DEVICE_FLOW_ISSUE_TOKEN=0
             flow = sso_device_flow_to_token(
-                sso, timeout=28, issue_token=True, log=logs.emit
+                sso,
+                timeout=28,
+                issue_token=True,
+                http_proxy_override=_device_code_proxy_override()[1],
+                log=logs.emit,
             )
             if flow.get("ok") and flow.get("token"):
                 return flow, None
@@ -2812,7 +2848,12 @@ def _exchange_import_token(sso: str, timeout: int) -> dict:
     result = None
     try:
         result = sso_device_flow_to_token(
-            sso, timeout=timeout, issue_token=True, proxy_spec=proxy_spec, log=logs.emit
+            sso,
+            timeout=timeout,
+            issue_token=True,
+            proxy_spec=proxy_spec,
+            http_proxy_override=_device_code_proxy_override()[1],
+            log=logs.emit,
         )
         return result
     finally:
@@ -2963,6 +3004,8 @@ def get_config():
             "OUTLOOK_ACCOUNTS": "",
             "OUTLOOK_ALIAS_LIMIT": cfg.get("OUTLOOK_ALIAS_LIMIT", DEFAULTS["OUTLOOK_ALIAS_LIMIT"]),
         },
+        # 换票申请代理：mode 原样回显；specific 的 URL 打码（密码部分），前端重填才更新
+        "device_code_proxy": _device_code_proxy_config_view(cfg),
         "masked": {
             "FREEMAIL_TOKEN": mask_secret(cfg.get("FREEMAIL_TOKEN", "")),
             "FREEMAIL_ADMIN_KEY": mask_secret(cfg.get("FREEMAIL_ADMIN_KEY", "")),
@@ -3386,6 +3429,33 @@ def save_config():
     outlook_accounts = str(body.get("OUTLOOK_ACCOUNTS", current.get("OUTLOOK_ACCOUNTS", ""))).strip()
     outlook_alias_limit = str(body.get("OUTLOOK_ALIAS_LIMIT", current.get("OUTLOOK_ALIAS_LIMIT", DEFAULTS["OUTLOOK_ALIAS_LIMIT"]))).strip() or "5"
 
+    # 换票申请代理（device/code + token 轮询）：三模式
+    dcp_mode = str(body.get("GROK_DEVICE_CODE_PROXY_MODE", "")).strip().lower()
+    dcp_url = str(body.get("GROK_DEVICE_CODE_PROXY_URL", "")).strip()
+    if dcp_mode:
+        if dcp_mode not in ("auto", "direct", "specific"):
+            return jsonify({"ok": False, "message": "换票申请代理模式必须是 auto / direct / specific"}), 400
+        if dcp_mode == "specific":
+            if not dcp_url:
+                # 空 URL = 保留 .env 里的现有代理（前端回显的是打码值）
+                existing = str(current.get("GROK_DEVICE_CODE_PROXY", "") or "").strip()
+                if not existing or existing.lower() in ("auto", "direct", "same", "register", "local", "none"):
+                    return jsonify({"ok": False, "message": "特定代理模式需要填写代理 URL"}), 400
+                dcp_url = existing
+            elif "://" not in dcp_url:
+                dcp_url = f"http://{dcp_url}"
+            if not re.match(r"^https?://[^\s/]+", dcp_url):
+                return jsonify({"ok": False, "message": "代理 URL 格式：http://[user:pass@]host:port"}), 400
+        elif dcp_url:
+            return jsonify({"ok": False, "message": "仅特定代理模式需要填写 URL"}), 400
+        device_code_proxy_value = {
+            "auto": "auto",
+            "direct": "direct",
+            "specific": dcp_url,
+        }[dcp_mode]
+    else:
+        device_code_proxy_value = None  # 请求未涉及该配置，保留现状
+
     # 允许前端传空密钥表示“保留原值”：用特殊标记
     if body.get("FREEMAIL_TOKEN") is None:
         token = current.get("FREEMAIL_TOKEN", "")
@@ -3468,6 +3538,8 @@ def save_config():
         "OUTLOOK_ACCOUNTS": outlook_accounts,
         "OUTLOOK_ALIAS_LIMIT": outlook_alias_limit,
     }
+    if device_code_proxy_value is not None:
+        values["GROK_DEVICE_CODE_PROXY"] = device_code_proxy_value
     if legacy_sub2_update:
         values.update({
             "SUB2API_URL": sub2api_url,

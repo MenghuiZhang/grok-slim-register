@@ -677,12 +677,20 @@ def sso_device_flow_to_token(
     timeout: int = 28,
     issue_token: bool | None = None,
     proxy_spec: str | None = None,
+    http_proxy_override: str | None = None,
     log=None,
 ) -> dict[str, Any]:
     """
     SSO cookie → device code（HTTP）→ 浏览器批准 → access_token（HTTP 轮询）。
 
     log 提供时（如控制台 logs.emit）批准过程逐步回显到面板；缺省打印 stdout。
+
+    http_proxy_override：device code 申请与 token 轮询（匿名 HTTP 步骤）的代理覆盖，
+      仅作用于 auth.x.ai 两个协议端点；浏览器批准页不受影响，仍走 proxy_spec。
+      - None：跟随 proxy_spec（默认，与注册节点一致）
+      - "direct"：强制直连（机场网关按域名 ACL 拦 auth.x.ai 时的兜底）
+      - 其他值：作为代理 URL 使用
+      空代理 URL 经 _proxy_map("") 归一为强制直连，与 "direct" 等价。
 
     2026-10 起 approve 表单需要浏览器内 Castle SDK 现场生成 castle_request_token，
     纯 HTTP 提交一律 403，因此 verify→consent→approve 固定走 Camoufox
@@ -714,13 +722,17 @@ def sso_device_flow_to_token(
     do_token = DEVICE_FLOW_ISSUE_TOKEN if issue_token is None else bool(issue_token)
     payload = decode_jwt_payload(s)
     del impersonate  # 兼容保留：浏览器路径不再使用 TLS 指纹轮换
+    # 匿名 HTTP 步骤（device/code、token 轮询）的代理覆盖；空串=强制直连
+    http_proxy = proxy_spec
+    if http_proxy_override is not None:
+        http_proxy = "" if http_proxy_override == "direct" else str(http_proxy_override).strip()
 
     # 有限并发 + 全局冷却：限流时大家一起让路，不把成功率打穿
     with _DEVICE_FLOW_SEM:
         _wait_device_flow_cooldown()
         last_err = "device flow 失败"
 
-        dc = _request_device_code(timeout=max(15, int(timeout)), proxy_spec=proxy_spec)
+        dc = _request_device_code(timeout=max(15, int(timeout)), proxy_spec=http_proxy)
         if not dc or dc.get("_error"):
             last_err = (dc or {}).get("_error") or "device/code 申请失败"
             _emit(f"device flow: device/code 申请失败 · {last_err}", "warn")
@@ -800,7 +812,7 @@ def sso_device_flow_to_token(
             int(dc.get("interval") or 5),
             int(dc.get("expires_in") or 1800),
             timeout=45,
-            proxy_spec=proxy_spec,
+            proxy_spec=http_proxy,
         )
         if isinstance(token, dict) and token.get("_error"):
             last_err = f"device approve 后 token 失败: {token.get('_error')}"
