@@ -11,12 +11,14 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from curl_cffi import requests
@@ -185,6 +187,46 @@ def _device_flow_log(message: str, level: str = "info") -> None:
     """浏览器批准日志转发：走 OpenCode 日志面板时由 app 注入；此处默认打印。"""
     try:
         print(f"[device-flow] {message}", flush=True)
+    except Exception:
+        pass
+
+
+def _device_flow_debug_on() -> bool:
+    return str(os.getenv("GROK_DEVICE_FLOW_DEBUG", "")).strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _new_device_flow_shot_dir(tag: str = "") -> Path | None:
+    """独立浏览器换票的截图目录：logs/device_flow/<时间>-<tag>/，失败留证。
+
+    注册浏览器内路径不建目录（复用注册流程现成的 round-* 目录）；
+    返回 None 表示调用方自行截图到已有目录。
+    """
+    base = Path(__file__).resolve().parent.parent / "logs" / "device_flow"
+    try:
+        name = time.strftime("%Y%m%d-%H%M%S")
+        if tag:
+            name += f"-{tag}"
+        shot_dir = base / name
+        shot_dir.mkdir(parents=True, exist_ok=True)
+        # 只留最近 20 组，防磁盘膨胀
+        dirs = sorted(d for d in base.iterdir() if d.is_dir())
+        for old in dirs[:-20]:
+            shutil.rmtree(old, ignore_errors=True)
+        return shot_dir
+    except Exception:
+        return None
+
+
+def _write_flow_meta(shot_dir: Path | None, **fields: Any) -> None:
+    """把换票现场摘要（URL/错误/页面文本）写进目录，不看图也能初判。"""
+    if shot_dir is None:
+        return
+    try:
+        lines = [f"{time.strftime('%Y-%m-%d %H:%M:%S')}"]
+        lines += [f"{k}: {v}" for k, v in fields.items() if v]
+        (shot_dir / "meta.txt").open("a", encoding="utf-8").write("\n".join(lines) + "\n")
     except Exception:
         pass
 
@@ -359,11 +401,27 @@ _BROWSER_CONFIRM_TIMEOUT = 20_000
 _BROWSER_CONSENT_TIMEOUT = 25_000
 
 
-def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
+def _page_body(page: Any, limit: int = 200) -> str:
+    """抓页面可见文本前若干字符，供 meta/错误信息定位现场。"""
+    try:
+        return (page.locator("body").inner_text() or "")[:limit].replace("\n", " | ")
+    except Exception:
+        return ""
+
+
+def _browser_click_allow(
+    page: Any,
+    *,
+    log=None,
+    shot_dir: Path | None = None,
+) -> dict[str, Any]:
     """在已打开的浏览器 page 上完成 device flow 批准。
 
     page 登录态由调用方保证：注册流程传注册浏览器现成 page（无需注入 SSO），
     存量转换走 _approve_with_browser 自启 Camoufox 并注入 sso cookie。
+
+    shot_dir 提供时（或 GROK_DEVICE_FLOW_DEBUG=1 时自建）每步截图 + meta.txt，
+    失败时留现场供排障。
 
     返回 {"ok": True} 或 {"ok": False, "error": "..."}；
     error 命中 rate_limited / 会话无效 / denied 语义，与旧 HTTP 路径一致。
@@ -371,30 +429,51 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
 
     def _emit(msg: str, level: str = "info") -> None:
         if callable(log):
-            log(msg, level)
+            try:
+                log(msg, level)
+            except TypeError:
+                log(msg)
+        else:
+            _device_flow_log(msg, level)
 
     try:
         page.set_default_timeout(_BROWSER_NAV_TIMEOUT)
     except Exception:
         pass
 
+    debug = _device_flow_debug_on()
+    if shot_dir is None and debug:
+        shot_dir = _new_device_flow_shot_dir("browser")
+
     def _shot(name: str) -> None:
-        # GROK_DEVICE_FLOW_DEBUG=1 时截图到 /tmp 供排障；失败静默
-        if str(os.getenv("GROK_DEVICE_FLOW_DEBUG", "")).strip().lower() in (
-            "1", "true", "yes", "on",
-        ):
+        # shot_dir 提供（失败留证 / 调用方目录）或 GROK_DEVICE_FLOW_DEBUG=1 时截图
+        if shot_dir is None:
+            return
+        try:
+            page.screenshot(path=str(Path(shot_dir) / f"{int(time.time())}-device_flow_{name}.png"))
+        except Exception:
+            pass
+
+    def _meta(**fields: Any) -> None:
+        if shot_dir is not None:
             try:
-                page.screenshot(path=f"/tmp/device_flow_{name}.png")
+                fields.setdefault("url", page.url)
             except Exception:
                 pass
+            _write_flow_meta(shot_dir, **fields)
 
     # 已在确认页（verification_uri_complete 落地）或中途页都直接用当前 URL
     url_now = (page.url or "").lower()
+    _emit(f"device flow: 授权页 {page.url}")
 
     # sign-in / sign-up：SSO 登录态失效（注入场景）——与旧路径语义一致
     if "sign-in" in url_now or "sign-up" in url_now:
+        _shot("invalid-session")
+        _meta(error="会话无效", body=_page_body(page))
         return {"ok": False, "error": f"会话无效（跳转 {page.url}）"}
     if "rate_limited" in url_now:
+        _shot("rate-limited")
+        _meta(error="rate_limited", body=_page_body(page))
         return {"ok": False, "error": f"探测 rate_limited: {page.url}"}
 
     # 确认页（"Sign in to Grok Build" + Continue）：点击进入同意页。
@@ -415,11 +494,16 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
     except Exception:
         pass
     _shot("consent")
+    _meta(step="consent")
 
     url_now = (page.url or "").lower()
     if "sign-in" in url_now or "sign-up" in url_now:
+        _shot("invalid-session")
+        _meta(error="会话无效", body=_page_body(page))
         return {"ok": False, "error": f"会话无效（跳转 {page.url}）"}
     if "rate_limited" in url_now:
+        _shot("rate-limited")
+        _meta(error="rate_limited", body=_page_body(page))
         return {"ok": False, "error": f"device verify 失败: {page.url}"}
 
     # 同意页：点 Allow（页面 JS 现场生成 castle_request_token 后自动重提交）
@@ -428,11 +512,8 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
         allow.wait_for(state="visible", timeout=_BROWSER_CONSENT_TIMEOUT)
     except Exception as exc:
         _shot("no-allow")
-        text = ""
-        try:
-            text = page.locator("body").inner_text()[:200]
-        except Exception:
-            pass
+        text = _page_body(page)
+        _meta(error="同意页未出现 Allow", body=text)
         return {
             "ok": False,
             "error": f"device verify 失败（同意页未出现 Allow: {str(exc)[:80]}）: {text[:120]}",
@@ -441,6 +522,8 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
         allow.click()
         _emit("device flow: 已点击 Allow")
     except Exception as exc:
+        _shot("allow-click-failed")
+        _meta(error="Allow 点击异常", body=_page_body(page))
         return {"ok": False, "error": f"device approve 异常: {exc}"}
     try:
         page.wait_for_load_state("networkidle", timeout=20_000)
@@ -452,8 +535,11 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
 
     url_now = (page.url or "").lower()
     if "denied=1" in url_now:
+        _meta(error="approve 被拒绝", body=_page_body(page))
         return {"ok": False, "error": f"device approve 被拒绝: {page.url}"}
     if "rate_limited" in url_now:
+        _shot("rate-limited")
+        _meta(error="rate_limited", body=_page_body(page))
         return {"ok": False, "error": f"device approve 失败: {page.url}"}
     # 成功页：URL 落 done，或页面出现 Authorized 文案
     body_text = ""
@@ -462,7 +548,10 @@ def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
     except Exception:
         pass
     if "done" in url_now or "authorized" in body_text:
+        _meta(result="approve 成功")
         return {"ok": True, "error": None}
+    _shot("unknown-final")
+    _meta(error="页面未见授权成功", body=_page_body(page))
     return {
         "ok": False,
         "error": f"device approve 失败: {page.url}（页面未见授权成功）",
@@ -514,6 +603,9 @@ def _approve_with_browser(
     from camoufox.sync_api import Camoufox
 
     kwargs = _browser_launch_kwargs(proxy_spec)
+    # 失败留证：每次独立浏览器换票建专属目录（成功也会清掉旧目录，保留最近 20 组）
+    shot_dir = _new_device_flow_shot_dir("browser")
+    _write_flow_meta(shot_dir, verify_uri=verify_uri, proxy=proxy_spec or "direct")
     with Camoufox(**kwargs) as browser:
         ctx = browser.new_context()
         ctx.add_cookies([
@@ -525,7 +617,12 @@ def _approve_with_browser(
             page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:
             pass
-        return _browser_click_allow(page, log=log)
+        result = _browser_click_allow(page, log=log, shot_dir=shot_dir)
+        if shot_dir is not None and result.get("ok"):
+            # 成功不留现场，目录清掉（debug 模式保留）
+            if not _device_flow_debug_on():
+                shutil.rmtree(shot_dir, ignore_errors=True)
+        return result
 
 
 def _rfc3339_ns(ts: float) -> str:
@@ -580,9 +677,12 @@ def sso_device_flow_to_token(
     timeout: int = 28,
     issue_token: bool | None = None,
     proxy_spec: str | None = None,
+    log=None,
 ) -> dict[str, Any]:
     """
     SSO cookie → device code（HTTP）→ 浏览器批准 → access_token（HTTP 轮询）。
+
+    log 提供时（如控制台 logs.emit）批准过程逐步回显到面板；缺省打印 stdout。
 
     2026-10 起 approve 表单需要浏览器内 Castle SDK 现场生成 castle_request_token，
     纯 HTTP 提交一律 403，因此 verify→consent→approve 固定走 Camoufox
@@ -595,6 +695,16 @@ def sso_device_flow_to_token(
 
     impersonate 参数保留仅为兼容旧调用方签名，已无实际作用。
     """
+
+    def _emit(msg: str, level: str = "info") -> None:
+        if callable(log):
+            try:
+                log(msg, level)
+            except TypeError:
+                log(msg)
+        elif log is None:
+            _device_flow_log(msg, level)
+
     s = (sso or "").strip()
     if not s:
         return {"ok": False, "error": "空 sso", "token": None, "payload": {}}
@@ -613,6 +723,7 @@ def sso_device_flow_to_token(
         dc = _request_device_code(timeout=max(15, int(timeout)), proxy_spec=proxy_spec)
         if not dc or dc.get("_error"):
             last_err = (dc or {}).get("_error") or "device/code 申请失败"
+            _emit(f"device flow: device/code 申请失败 · {last_err}", "warn")
             if _device_flow_error_kind(last_err) == "rate_limited":
                 _mark_device_flow_cooldown(30)
             return {
@@ -635,13 +746,15 @@ def sso_device_flow_to_token(
             dc.get("verification_uri_complete")
             or f"{site_url}/oauth2/device?user_code={user_code}"
         )
+        _emit(f"device flow: user_code={user_code} · 开始浏览器批准")
 
         try:
             approved = _approve_with_browser(
-                s, verify_uri, proxy_spec=proxy_spec, log=_device_flow_log
+                s, verify_uri, proxy_spec=proxy_spec, log=_emit
             )
         except Exception as e:
             last_err = f"device approve 浏览器异常: {e}"
+            _emit(f"device flow: {last_err}", "error")
             kind = _device_flow_error_kind(last_err)
             if kind == "rate_limited":
                 _mark_device_flow_cooldown(30)
@@ -653,6 +766,7 @@ def sso_device_flow_to_token(
             }
         if not approved.get("ok"):
             last_err = str(approved.get("error") or "device approve 失败")
+            _emit(f"device flow: 批准失败 · {last_err}", "warn")
             kind = _device_flow_error_kind(last_err)
             if kind == "rate_limited":
                 _mark_device_flow_cooldown(30)
@@ -690,6 +804,7 @@ def sso_device_flow_to_token(
         )
         if isinstance(token, dict) and token.get("_error"):
             last_err = f"device approve 后 token 失败: {token.get('_error')}"
+            _emit(f"device flow: {last_err}", "warn")
             return {
                 "ok": False,
                 "error": last_err,
@@ -699,6 +814,7 @@ def sso_device_flow_to_token(
             }
         if not token or not (token.get("access_token") or token.get("key")):
             last_err = "device approve 后未拿到 access_token"
+            _emit(f"device flow: {last_err}", "warn")
             return {
                 "ok": False,
                 "error": last_err,

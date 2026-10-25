@@ -381,6 +381,9 @@ def exchange_one(record: SSORecord, timeout: int) -> dict[str, Any]:
             record.sso,
             timeout=timeout,
             issue_token=True,
+            log=lambda msg, level="info": print(
+                f"[convert:{record.email or record.session_id}] {msg}", flush=True
+            ),
         )
     except Exception as exc:
         return {

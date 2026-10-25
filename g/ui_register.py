@@ -891,24 +891,54 @@ def click_turnstile_macos(
     return "exhausted"
 
 
-def _convert_token_in_browser(page, result: dict[str, Any], log) -> None:
+def _convert_token_in_browser(
+    page,
+    result: dict[str, Any],
+    log,
+    shot_dir: Path | None = None,
+) -> None:
     """注册浏览器内直接完成 device flow 换票（场景 A：无需注入 SSO）。
 
     复用注册浏览器的登录态/指纹/代理，HTTP 只做 device code 申请与 token 轮询。
     成功后把 token 写入 result["auth_token"]；任何失败仅记录，不影响注册结果。
+    shot_dir 提供时（注册流程的 round-* 目录）失败自动截图留证。
     """
     from g.device_flow import (
         _browser_click_allow,
         _device_flow_error_kind,
         _mark_device_flow_cooldown,
+        _new_device_flow_shot_dir,
+        _page_body,
         _poll_device_token,
         _request_device_code,
+        _write_flow_meta,
     )
+
+    # 注册页截图目录没传（手动单跑等场景）时自建，失败同样有现场
+    flow_dir = shot_dir or _new_device_flow_shot_dir("in-register")
+
+    def _emit(msg: str, level: str = "info") -> None:
+        log(msg, level)
+
+    def _shot(name: str) -> None:
+        try:
+            page.screenshot(path=str(Path(flow_dir) / f"{int(time.time())}-browser_convert_{name}.png"))
+        except Exception:
+            pass
+
+    def _meta(**fields: Any) -> None:
+        try:
+            fields.setdefault("url", page.url)
+        except Exception:
+            pass
+        _write_flow_meta(Path(flow_dir), source="in-register", **fields)
 
     log("浏览器内换票开始（device flow）…")
     dc = _request_device_code(timeout=20)
     if not dc or dc.get("_error") or not dc.get("device_code"):
-        log(f"device/code 申请失败: {(dc or {}).get('_error') or '无 device_code'}")
+        log(f"device/code 申请失败: {(dc or {}).get('_error') or '无 device_code'}", "warn")
+        _shot("device-code-failed")
+        _meta(error="device/code 申请失败", detail=str((dc or {}).get('_error') or ''))
         return
 
     user_code = str(dc["user_code"])
@@ -916,18 +946,19 @@ def _convert_token_in_browser(page, result: dict[str, Any], log) -> None:
         dc.get("verification_uri_complete")
         or f"https://accounts.x.ai/oauth2/device?user_code={user_code}"
     )
+    _meta(user_code=user_code)
     page.goto(verify_uri, wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_load_state("networkidle", timeout=15000)
     except Exception:
         pass
 
-    approved = _browser_click_allow(page, log=lambda msg, level="info": log(msg))
+    approved = _browser_click_allow(page, log=_emit, shot_dir=Path(flow_dir))
     if not approved.get("ok"):
         error = str(approved.get("error") or "device approve 失败")
         if _device_flow_error_kind(error) == "rate_limited":
             _mark_device_flow_cooldown(30)
-        log(f"浏览器内批准失败: {error}")
+        log(f"浏览器内批准失败: {error}", "warn")
         return
 
     token = _poll_device_token(
@@ -937,14 +968,22 @@ def _convert_token_in_browser(page, result: dict[str, Any], log) -> None:
         timeout=45,
     )
     if isinstance(token, dict) and token.get("_error"):
-        log(f"批准成功但 token 轮询失败: {token.get('_error')}")
+        log(f"批准成功但 token 轮询失败: {token.get('_error')}", "warn")
+        _shot("token-poll-failed")
+        _meta(error="token 轮询失败", detail=str(token.get('_error') or ''))
         return
     if not isinstance(token, dict) or not (token.get("access_token") or token.get("key")):
-        log("批准成功但未拿到 access_token")
+        log("批准成功但未拿到 access_token", "warn")
+        _shot("no-token")
+        _meta(error="未拿到 access_token", body=_page_body(page))
         return
 
     result["auth_token"] = token
     log(f"浏览器内换票成功（refresh_token: {bool(token.get('refresh_token'))}）")
+    if not shot_dir:
+        # 用调用方目录时成功也留证据链（注册流程成功会清 round 目录）；
+        # 自建目录时成功即清，不留个人 token 相关现场
+        shutil.rmtree(flow_dir, ignore_errors=True)
 
 
 class BrowserCrashGuard:
@@ -1415,9 +1454,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "0", "false", "no", "off",
             ):
                 try:
-                    _convert_token_in_browser(page, result, log)
+                    _convert_token_in_browser(page, result, log, shot_dir=shot_dir)
                 except Exception as exc:
-                    log(f"浏览器内换票异常（不影响注册结果）: {exc}")
+                    log(f"浏览器内换票异常（不影响注册结果）: {exc}", "warn")
         elif not result["error"]:
             hint = has_error(page_text(page))
             result["error"] = f"页面报错: {hint}" if hint else "未拿到 sso"

@@ -922,6 +922,7 @@ class RegisterRunner:
                         timeout=self.TOKEN_EXCHANGE_TIMEOUT,
                         issue_token=True,
                         proxy_spec=proxy_spec,
+                        log=self._log,
                     )
                 finally:
                     _release_token_proxy(
@@ -2441,7 +2442,9 @@ def import_sso_to_upstream(
         last_flow_err = "本机 device flow 失败"
         for attempt in range(1, max_attempts + 1):
             # 导入必须真正换票；覆盖全局诊断开关 GROK_DEVICE_FLOW_ISSUE_TOKEN=0
-            flow = sso_device_flow_to_token(sso, timeout=28, issue_token=True)
+            flow = sso_device_flow_to_token(
+                sso, timeout=28, issue_token=True, log=logs.emit
+            )
             if flow.get("ok") and flow.get("token"):
                 return flow, None
             if flow.get("ok") and not flow.get("token"):
@@ -2809,7 +2812,7 @@ def _exchange_import_token(sso: str, timeout: int) -> dict:
     result = None
     try:
         result = sso_device_flow_to_token(
-            sso, timeout=timeout, issue_token=True, proxy_spec=proxy_spec
+            sso, timeout=timeout, issue_token=True, proxy_spec=proxy_spec, log=logs.emit
         )
         return result
     finally:
