@@ -87,7 +87,9 @@ ERROR_HINTS = (
 )
 
 
-def log(message: str) -> None:
+def log(message: str, level: str = "info") -> None:
+    # level 仅作分级标记（子进程 stdout 无级别着色），保持与控制台 _log 兼容
+    del level
     print(f"[ui-register] {message}", flush=True)
 
 
