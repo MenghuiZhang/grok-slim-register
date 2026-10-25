@@ -95,68 +95,12 @@ def require_monitor_token(fn):
         return fn(*args, **kwargs)
     return wrapped
 
-# 主流程日志（建邮/camoufox/castle/发码/signup/SSO…）
+# 主流程日志（建邮/camoufox/castle/发码/signup/SSO/换 token/device flow…）
 logs = LogBuffer(maxlen=3000)
-# 右侧副区：risk 探测 + 换 token（不进主日志，避免刷屏）
-post_logs = LogBuffer(maxlen=2000)
-
-
-def _is_post_process_log(message: str) -> bool:
-    """
-    risk / 换 token / 协议 / NSFW 相关日志 → 右侧副区。
-    主区只保留注册主路径，便于盯吞吐。
-    注意：主路径「CLEAN 已计成功 · 换 token/协议/NSFW 异步处理中」仍留主区。
-    """
-    msg = str(message or "")
-    if not msg:
-        return False
-    # 主路径宣告异步，不当后置步骤
-    if "异步处理中" in msg and "CLEAN" in msg:
-        return False
-    # 换 token 操作本身 / device flow
-    if re.search(
-        r"换\s*token\s*(开始|成功|失败|异常|返回体|：|：approve)|"
-        r"\[后台\]\s*换\s*token|"
-        r"device\s*flow|"
-        r"device_flow",
-        msg,
-        re.I,
-    ):
-        return True
-    # 协议 / NSFW / unhinged（enrich 后置）
-    if re.search(
-        r"\[后台\].*(NSFW|unhinged|协议)|"
-        r"\bNSFW\b|"
-        r"unhinged|"
-        r"协议/NSFW|"
-        r"协议失败|"
-        r"NSFW失败|"
-        r"token=async|"
-        r"enrich",
-        msg,
-        re.I,
-    ):
-        return True
-    # risk 探测全链路（含 MARKED/CLEAN/INFRA/调度）
-    if re.search(
-        r"\brisk\s*(探测|CLEAN|MARKED|INFRA|跳过|基建)|"
-        r"risk\s+CLEAN|"
-        r"risk\s+MARKED|"
-        r"risk\s+INFRA|"
-        r"调度\s*risk|"
-        r"绕过成功列表",
-        msg,
-        re.I,
-    ):
-        return True
-    return False
 
 
 def _route_engine_log(msg: str, level: str = "info") -> None:
-    if _is_post_process_log(msg):
-        post_logs.emit(msg, level)
-    else:
-        logs.emit(msg, level)
+    logs.emit(msg, level)
 
 
 def _sso_preview(sso: object) -> str:
@@ -3545,22 +3489,15 @@ def save_config():
 @app.get("/api/logs")
 def get_logs():
     after_id = request.args.get("after_id", 0, type=int)
-    post_after_id = request.args.get("post_after_id", 0, type=int)
     limit = request.args.get("limit", 200, type=int)
     limit = max(1, min(limit, 500))
     latest = logs.latest_id()
-    post_latest = post_logs.latest_id()
     # after_id 大于服务端序号 = 页面是旧会话，需重置游标
     reset = bool(after_id and after_id > latest)
-    post_reset = bool(post_after_id and post_after_id > post_latest)
     return jsonify({
         "logs": logs.since(after_id, limit),
         "latest_id": latest,
         "reset": reset,
-        # 右侧：risk / 换 token
-        "post_logs": post_logs.since(post_after_id, limit),
-        "post_latest_id": post_latest,
-        "post_reset": post_reset,
     })
 
 
@@ -3622,9 +3559,7 @@ def stop():
 @app.post("/api/logs/clear")
 def clear_logs():
     logs.clear()
-    post_logs.clear()
     logs.emit("日志已清空", "info")
-    post_logs.emit("Risk/换 token 日志已清空", "info")
     return jsonify({"ok": True})
 
 
@@ -3650,27 +3585,6 @@ def clear_diagnostic_captures():
         "message": f"已清理 {result['removed_groups']} 组诊断抓包",
         **result,
     })
-
-
-@app.get("/api/keys")
-def list_keys():
-    keys_dir = BASE_DIR / "keys"
-    if not keys_dir.exists():
-        return jsonify({"files": []})
-    files = []
-    for p in sorted(keys_dir.glob("*.txt"), key=lambda x: x.stat().st_mtime, reverse=True):
-        try:
-            lines = sum(1 for _ in open(p, "r", encoding="utf-8", errors="ignore") if _.strip())
-        except Exception:
-            lines = 0
-        files.append({
-            "name": p.name,
-            "path": str(p.relative_to(BASE_DIR)).replace("\\", "/"),
-            "size": p.stat().st_size,
-            "count": lines,
-            "mtime": p.stat().st_mtime,
-        })
-    return jsonify({"files": files[:30]})
 
 
 def _short_proxy_err(err: str, max_len: int = 96) -> str:

@@ -101,21 +101,9 @@
       50% { opacity: .45; transform: scale(.85); }
     }
     .pulse-live { animation: pulse-dot 1.4s ease-in-out infinite; }
-    #logBox, #postLogBox, #successList, #keysList { scrollbar-width: thin; scrollbar-color: #d5cdb8 transparent; }
+    #logBox, #successList { scrollbar-width: thin; scrollbar-color: #d5cdb8 transparent; }
 
-    /* 日志双栏：不靠 Tailwind xl 断点 */
-    .log-split {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 0.9rem;
-      min-width: 0;
-    }
-    @media (min-width: 1024px) {
-      .log-split {
-        grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
-      }
-    }
-    #logBox, #postLogBox { width: 100%; min-width: 0; }
+    #logBox { width: 100%; min-width: 0; }
 
     /* 配置页：平铺分组，面板内滚动 */
     #tab-config {
@@ -316,10 +304,6 @@
               <button type="button" data-tab="config" class="tab-btn flex-1 rounded-xl px-3 py-2 text-xs sm:text-sm text-ink-700/75 inline-flex items-center justify-center gap-1.5">
                 <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>系统配置</span>
-              </button>
-              <button type="button" data-tab="keys" class="tab-btn flex-1 rounded-xl px-3 py-2 text-xs sm:text-sm text-ink-700/75 inline-flex items-center justify-center gap-1.5">
-                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                <span>Keys 导出</span>
               </button>
             </div>
 
@@ -552,24 +536,10 @@
                 </div>
               </form>
             </div>
-
-            <!-- KEYS PANEL -->
-            <div id="tab-keys" class="p-5 space-y-3 hidden">
-              <div class="flex items-center justify-between">
-                <div>
-                  <h2 class="font-display font-bold text-ink-900 text-base">Key 产物文件</h2>
-                  <p class="text-[11px] text-ink-700/50 font-mono">可直接下载或送入导入中心</p>
-                </div>
-                <button id="btnRefreshKeys" type="button" class="btn btn-ghost text-xs px-3 py-1.5">刷新</button>
-              </div>
-              <ul id="keysList" class="space-y-2 max-h-80 overflow-y-auto text-xs font-mono">
-                <li class="text-ink-700/50 py-6 text-center">暂无文件</li>
-              </ul>
-            </div>
           </div>
         </section>
 
-        <!-- Right: logs (主流程 | risk/token/NSFW) -->
+        <!-- Right: logs -->
         <section class="lg:col-span-8 space-y-4 min-w-0">
           <div class="panel rounded-2xl p-5">
             <div class="flex items-center justify-between mb-3.5 gap-3 flex-wrap">
@@ -586,32 +556,17 @@
               </div>
             </div>
 
-            <div class="log-split">
-              <!-- 主流程（约 65% 宽） -->
+            <div>
               <div class="min-w-0 term-window">
                 <div class="term-header">
                   <div class="flex items-center gap-2">
                     <span class="term-dots"><i class="bg-rose-400"></i><i class="bg-amber-400"></i><i class="bg-emerald-400"></i></span>
                     <span class="text-[11px] uppercase tracking-[0.12em] font-bold text-ink-800">主流程引擎</span>
                   </div>
-                  <span class="text-[10px] font-mono text-ink-700/50">建邮 · camoufox · signup · SSO</span>
+                  <span class="text-[10px] font-mono text-ink-700/50">建邮 · camoufox · signup · SSO · 换 token</span>
                 </div>
-                <div id="logBox" class="h-[28rem] overflow-y-auto p-3 font-mono text-[12px] leading-relaxed space-y-0.5">
+                <div id="logBox" class="h-[36rem] overflow-y-auto p-3 font-mono text-[12px] leading-relaxed space-y-0.5">
                   <div class="text-ink-700/40 py-8 text-center">等待主流程日志...</div>
-                </div>
-              </div>
-
-              <!-- Risk / Token / NSFW（约 35%） -->
-              <div class="min-w-0 term-window" style="background: rgba(239, 248, 255, 0.35);">
-                <div class="term-header" style="background: rgba(219, 238, 254, 0.55);">
-                  <div class="flex items-center gap-2">
-                    <span class="h-2 w-2 rounded-full bg-brand-500"></span>
-                    <span class="text-[11px] uppercase tracking-[0.12em] font-bold text-brand-700">Risk · Token · NSFW</span>
-                  </div>
-                  <span class="text-[10px] font-mono text-brand-700/65">异步后置</span>
-                </div>
-                <div id="postLogBox" class="h-[28rem] overflow-y-auto p-3 font-mono text-[12px] leading-relaxed space-y-0.5">
-                  <div class="text-ink-700/40 py-8 text-center">risk · 换 token · 协议/NSFW 输出在这里</div>
                 </div>
               </div>
             </div>
@@ -644,12 +599,10 @@
   <script>
     const state = {
       afterId: 0,
-      postAfterId: 0,
       running: false,
       lastStatus: null,
       pollInFlight: false,
       seenLogIds: new Set(),
-      seenPostLogIds: new Set(),
       starting: false,
       pollFailCount: 0,
       serverConnected: false,
@@ -890,10 +843,9 @@
       btn.addEventListener('click', () => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        ['run', 'config', 'keys'].forEach(name => {
+        ['run', 'config'].forEach(name => {
           $('tab-' + name).classList.toggle('hidden', btn.dataset.tab !== name);
         });
-        if (btn.dataset.tab === 'keys') refreshKeys();
         if (btn.dataset.tab === 'config') loadConfig();
       });
     });
@@ -983,15 +935,6 @@
         boxId: 'logBox',
         afterKey: 'afterId',
         seenKey: 'seenLogIds',
-      });
-    }
-
-    function appendPostLogs(entries) {
-      return appendLogsToBox(entries, {
-        boxId: 'postLogBox',
-        afterKey: 'postAfterId',
-        seenKey: 'seenPostLogIds',
-        maxChildren: 600,
       });
     }
 
@@ -1096,41 +1039,27 @@
       if (state.pollInFlight) return;
       state.pollInFlight = true;
       try {
-        // 先拉状态（轻量），再拉日志；afterId / postAfterId 分开游标
+        // 先拉状态（轻量），再拉日志
         const status = await fetchJSON('/api/status');
         renderStatus(status);
         let after = state.afterId;
-        let postAfter = state.postAfterId;
         let logs = await fetchJSON(
-          `/api/logs?after_id=${after}&post_after_id=${postAfter}&limit=200`
+          `/api/logs?after_id=${after}&limit=200`
         );
         // 服务重启后 afterId 会大于 latest_id，必须重置否则永远看不到新日志
         const needResetMain =
           logs.reset || (logs.latest_id != null && after > logs.latest_id);
-        const needResetPost =
-          logs.post_reset ||
-          (logs.post_latest_id != null && postAfter > logs.post_latest_id);
-        if (needResetMain || needResetPost) {
-          if (needResetMain) {
-            state.afterId = 0;
-            state.seenLogIds = new Set();
-          }
-          if (needResetPost) {
-            state.postAfterId = 0;
-            state.seenPostLogIds = new Set();
-          }
+        if (needResetMain) {
+          state.afterId = 0;
+          state.seenLogIds = new Set();
           logs = await fetchJSON(
-            `/api/logs?after_id=${state.afterId}&post_after_id=${state.postAfterId}&limit=200`
+            `/api/logs?after_id=${state.afterId}&limit=200`
           );
         }
         const newLogs = logs.logs || [];
-        const newPostLogs = logs.post_logs || [];
         appendLogs(newLogs);
-        appendPostLogs(newPostLogs);
-        // 流水线 hint：主区 + 副区都参与推断（risk/换 token 在副区）
-        const hint =
-          inferPipelineFromLogs(newPostLogs) ||
-          inferPipelineFromLogs(newLogs);
+        // 流水线 hint：全量日志都在主区
+        const hint = inferPipelineFromLogs(newLogs);
         if (hint) setPipelineHint(hint);
         else if (state.running && state.lastStatus) {
           const ec = state.lastStatus.success_count ?? 0;
@@ -1138,7 +1067,7 @@
           const ok = state.lastStatus.token_ok_count ?? 0;
           const bad = state.lastStatus.token_fail_count ?? 0;
           const pendingCount = state.lastStatus.token_pending_count ?? 0;
-          setPipelineHint(`运行中 · 创邮 ${ec}/${tc} · 换 token ${ok}✓ ${bad}✗ ${pendingCount}中 · 见下方双栏日志`);
+          setPipelineHint(`运行中 · 创邮 ${ec}/${tc} · 换 token ${ok}✓ ${bad}✗ ${pendingCount}中`);
         }
         state.pollFailCount = 0;
         if (!state.serverConnected) {
@@ -1277,30 +1206,6 @@
       return data;
     }
 
-    async function refreshKeys() {
-      try {
-        const data = await fetchJSON('/api/keys');
-        const list = $('keysList');
-        if (!data.files || !data.files.length) {
-          list.innerHTML = '<li class="text-ink-700/50 py-6 text-center">暂无文件</li>';
-          return;
-        }
-        list.innerHTML = data.files.map(f => `
-          <li class="flex items-center justify-between gap-2 rounded-xl border border-ink-900/8 bg-white hover:border-brand-500/30 transition-colors px-3.5 py-2.5 shadow-sm">
-            <div class="min-w-0">
-              <div class="truncate text-ink-900 font-bold">${escapeHtml(f.name)}</div>
-              <div class="text-ink-700/50 text-[11px] mt-0.5">${f.count} keys · ${Math.round(f.size / 1024 * 10) / 10} KB</div>
-            </div>
-            <div class="shrink-0 flex items-center gap-2">
-              <a class="btn btn-ghost text-[11px] px-2.5 py-1 no-underline" href="/import-services">导入中心</a>
-              <a class="btn btn-primary text-[11px] px-2.5 py-1 no-underline" href="/${escapeHtml(f.path)}" download>下载</a>
-            </div>
-          </li>`).join('');
-      } catch (e) {
-        $('keysList').innerHTML = `<li class="text-rose-500">${escapeHtml(e.message)}</li>`;
-      }
-    }
-
     /* ---------- Events ---------- */
     $('startForm').addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -1324,7 +1229,6 @@
         });
         setMessage($('formMessage'), data.message || '已启动', true);
         renderStatus(data);
-        refreshKeys();
         pollOnce();
       } catch (e) {
         setMessage($('formMessage'), e.message || '启动失败', false);
@@ -1484,20 +1388,14 @@
     }
 
     $('btnReloadConfig').addEventListener('click', loadConfig);
-    $('btnRefreshKeys').addEventListener('click', refreshKeys);
     $('btnFetchDomains').addEventListener('click', () => fetchMailDomains(false));
 
     $('btnClearLogs').addEventListener('click', async () => {
       try {
         await fetchJSON('/api/logs/clear', { method: 'POST' });
-        $('logBox').innerHTML = '<div class="text-ink-700/40 py-8 text-center">主流程日志已清空</div>';
-        if ($('postLogBox')) {
-          $('postLogBox').innerHTML = '<div class="text-ink-700/40 py-8 text-center">Risk/换 token 日志已清空</div>';
-        }
+        $('logBox').innerHTML = '<div class="text-ink-700/40 py-8 text-center">日志已清空</div>';
         state.afterId = 0;
-        state.postAfterId = 0;
         state.seenLogIds = new Set();
-        state.seenPostLogIds = new Set();
       } catch (e) {
         setMessage($('formMessage'), e.message, false);
       }
@@ -1521,7 +1419,6 @@
     // boot
     pollOnce();
     loadConfig();
-    refreshKeys();
     schedulePoll();
   </script>
 </body>
