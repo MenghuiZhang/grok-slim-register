@@ -258,7 +258,10 @@ class RegisterRunner:
         self._finalized = True
         # 批次序号：防止上一批的收尾线程误结束下一批任务
         self._run_seq = 0
-        self.auto_exchange_token = True
+        # 与 /api/start 的勾选持久化对齐：进程重启后从 env 恢复，checkbox 不弹回默认
+        self.auto_exchange_token = str(
+            os.getenv("GROK_AUTO_EXCHANGE_TOKEN", "1")
+        ).strip().lower() not in ("0", "false", "no", "off")
         self.token_ok_count = 0
         self.token_fail_count = 0
         self.file_lock = threading.RLock()
@@ -1057,6 +1060,7 @@ CONFIG_KEYS = (
     "UPSTREAM_URL",
     "UPSTREAM_ADMIN_EMAIL",
     "UPSTREAM_ADMIN_PASSWORD",
+    "GROK_AUTO_EXCHANGE_TOKEN",
     "EMAIL_TYPE",
     "OUTLOOK_ACCOUNTS",
     "OUTLOOK_ALIAS_LIMIT",
@@ -1085,6 +1089,7 @@ DEFAULTS = {
     "UPSTREAM_URL": "http://127.0.0.1:9898",
     "UPSTREAM_ADMIN_EMAIL": "",
     "UPSTREAM_ADMIN_PASSWORD": "",
+    "GROK_AUTO_EXCHANGE_TOKEN": "1",
     "EMAIL_TYPE": "freemail",
     "OUTLOOK_ACCOUNTS": "",
     "OUTLOOK_ALIAS_LIMIT": "5",
@@ -2304,6 +2309,7 @@ def import_sso_to_upstream(
     register_proxy: str = "",
     tls_verify: bool = True,
     accounts: list[dict] | None = None,
+    allow_local_device_flow: bool = True,
 ) -> dict:
     """
     导入 SSO 到 sub2api 的 grok 分组（HTTP Admin API）。
@@ -2312,6 +2318,7 @@ def import_sso_to_upstream(
     1) 有缓存 auth_token（注册流水线 risk 后前台换票）→ HTTP 直写 accounts
     2) 无缓存 → 服务端 /api/v1/admin/grok/sso-to-oauth
     3) sso-to-oauth 失败且可重试 → 本机 device flow 仅作兜底，再 HTTP 写 accounts
+       （allow_local_device_flow=False 时跳过，注册面板取消自动换票后自动导入走此配置）
     """
     import time
 
@@ -2675,13 +2682,30 @@ def import_sso_to_upstream(
                     )
 
     # —— 路径 C：sso-to-oauth 可重试失败 → 本机 device flow 兜底 + HTTP 写 accounts ——
-    retry_list = [
-        idx
-        for idx in range(1, len(items) + 1)
-        if results_by_idx.get(idx, {}).get("status") == "failed"
-        and results_by_idx[idx].get("retryable", False)
-        and results_by_idx[idx].get("via") == "sso_to_oauth_http"
-    ]
+    # 自动导入且注册面板取消勾选「自动换 token」时跳过本机换票，保持纯 SSO 导入
+    if allow_local_device_flow:
+        retry_list = [
+            idx
+            for idx in range(1, len(items) + 1)
+            if results_by_idx.get(idx, {}).get("status") == "failed"
+            and results_by_idx[idx].get("retryable", False)
+            and results_by_idx[idx].get("via") == "sso_to_oauth_http"
+        ]
+    else:
+        retry_list = []
+        skipped_flow = sum(
+            1
+            for idx in range(1, len(items) + 1)
+            if results_by_idx.get(idx, {}).get("status") == "failed"
+            and results_by_idx[idx].get("retryable", False)
+            and results_by_idx[idx].get("via") == "sso_to_oauth_http"
+        )
+        if skipped_flow:
+            logs.emit(
+                f"sub2api 导入：{skipped_flow} 条 sso-to-oauth 失败，"
+                f"自动换 token 已关闭，跳过本机 device flow 兜底",
+                "warn",
+            )
     if retry_list:
         logs.emit(
             f"sub2api 导入：sso-to-oauth 后 {len(retry_list)} 条可重试，"
@@ -2822,6 +2846,8 @@ IMPORT_JOBS = ImportJobManager(
     IMPORT_TARGETS,
     sub2api_importer=import_sso_to_upstream,
     token_exchanger=_exchange_import_token,
+    # 自动导入任务是否允许本机换票：跟随注册面板「自动换 token」勾选
+    token_exchanger_enabled=lambda: runner.auto_exchange_token,
     register_proxy_getter=lambda: "",
     log=logs.emit,
     on_job_complete=_clear_completed_import_tokens,
@@ -3555,7 +3581,17 @@ def start():
     cfg_env = read_env_file()
     if "auto_exchange" in body:
         # 注册成功后是否自动把 SSO 换成 access_token（默认开）
-        cfg_env["GROK_AUTO_EXCHANGE_TOKEN"] = "1" if body.get("auto_exchange") else "0"
+        exchange_on = bool(body.get("auto_exchange"))
+        cfg_env["GROK_AUTO_EXCHANGE_TOKEN"] = "1" if exchange_on else "0"
+        # 勾选状态落盘 + 同步进程环境，控制台重启后 checkbox 不弹回默认
+        write_env_file(cfg_env)
+        os.environ["GROK_AUTO_EXCHANGE_TOKEN"] = cfg_env["GROK_AUTO_EXCHANGE_TOKEN"]
+        if not exchange_on:
+            # 注册子进程浏览器内的顺手换票（GROK_BROWSER_CONVERT 默认开）也要一起关，
+            # 否则取消勾选后每轮注册仍会在浏览器里跑 device flow。
+            # 落盘之后才注入：只影响本轮子进程，不覆盖 .env 里的用户配置，
+            # 重新勾选后立即恢复默认行为
+            cfg_env["GROK_BROWSER_CONVERT"] = "0"
     active_domains: list[str] = []
     if domain_pool.summary().get("total"):
         active_domains = domain_pool.active_domains()

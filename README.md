@@ -60,7 +60,8 @@ python -m camoufox fetch
 | `GROK_CAMOUFOX_HEADLESS` | `1` 无头（默认）/ `0` 有头（调试镜像观察） |
 | `GROK_PROXY_LEASE_WAIT` | 代理池无可用节点时最多等几秒再跳过该轮（默认 120，0 = 不等待） |
 | `GROK_SUBMIT_NAV_TIMEOUT` | 提交邮箱后等待进入验证码页的秒数（默认 20；期间持续检测报错文本，命中立即放弃） |
-| `GROK_AUTO_EXCHANGE_TOKEN` | `1` 注册成功后自动换 token（默认）/ `0` 关闭 |
+| `GROK_AUTO_EXCHANGE_TOKEN` | `1` 注册成功后自动换 token（默认）/ `0` 关闭；取消勾选会同时落盘保存 |
+| `GROK_BROWSER_CONVERT` | `1` 注册浏览器内顺手换票（默认）/ `0` 关闭；取消勾选「自动换 token」时自动置 0 |
 | `SUB2API_*` / `UPSTREAM_*` | 导入下游配置（也可在控制台里改） |
 
 `data/domain_pool.json`、`data/proxy_pool.json` 为运行时状态，由控制台维护，不需要手填。
@@ -113,7 +114,11 @@ python app.py     # http://127.0.0.1:3333
 - 换票完成（成功或失败）后才交给导入服务：成功直接用缓存 token 直写，
   失败则由导入服务再跑一次 device flow 兜底
 - 日志走右侧「Risk · Token · NSFW」副区；不阻塞注册主循环，吞吐不受影响
-- 关闭方式：启动面板取消勾选「注册后自动换 token」，或设 `GROK_AUTO_EXCHANGE_TOKEN=0`
+- 关闭方式：启动面板取消勾选「注册后自动换 token」，或设 `GROK_AUTO_EXCHANGE_TOKEN=0`。
+  取消勾选后会同时关闭注册浏览器内的顺手换票（`GROK_BROWSER_CONVERT=0`）并把开关写进 `.env`，
+  重启后仍生效。关闭后注册阶段（含浏览器内）完全不做 device flow；
+  注册触发的自动导入也只导纯 SSO（sub2api 走服务端 sso-to-oauth，无 token 的 CPA/grok2api
+  目标跳过并标记原因）；导入中心手动创建的任务不受影响，仍可正常换票导入
 
 ## Docker 部署
 
@@ -407,7 +412,7 @@ docker compose -f compose.yaml -f compose.debug.yaml up -d --no-build
   每 0.5s 检测一次页面文本，命中报错 1–2s 内即放弃本轮（默认最多等 20s 进验证码页，
   可用 `GROK_SUBMIT_NAV_TIMEOUT` 调整），worker 自动开下一轮换邮箱换节点
 - **控制台「自动换 token」勾选被弹回**：已修复——checkbox 只在页面首次加载时同步服务端值，
-  之后不再被轮询覆盖
+  之后不再被轮询覆盖；且取消勾选时会写入 `.env` 持久保存，重启不再弹回默认勾选
 - **域名池没有已启用域名**：邮箱配置页启用至少一个域名，或清空域名池让其自动选域
 - **Turnstile 点不中 / 勾上又弹回**：确认窗口尺寸与实际一致（坐标兜底按 `1500x950` 测得）；
   若一直回落，先看日志的节点出口，机房 IP + 无头最容易触发 reset

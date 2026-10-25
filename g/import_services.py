@@ -765,6 +765,7 @@ class ImportJobManager:
         *,
         sub2api_importer: Callable[..., dict],
         token_exchanger: Callable[[str, int], dict],
+        token_exchanger_enabled: Callable[[], bool] | None = None,
         register_proxy_getter: Callable[[], str] | None = None,
         log: Callable[[str, str], None] | None = None,
         on_job_complete: Callable[[dict], None] | None = None,
@@ -775,6 +776,8 @@ class ImportJobManager:
         self.targets = targets
         self.sub2api_importer = sub2api_importer
         self.token_exchanger = token_exchanger
+        # 返回 False 时导入任务不再调本机 device flow 兜底换票（注册侧已关自动换票）
+        self.token_exchanger_enabled = token_exchanger_enabled or (lambda: True)
         self.register_proxy_getter = register_proxy_getter or (lambda: "")
         self.log = log or (lambda _message, _level="info": None)
         self.on_job_complete = on_job_complete
@@ -917,6 +920,11 @@ class ImportJobManager:
             "force_refresh": bool(force_refresh),
             "allow_marked": bool(allow_marked),
             "allow_review": bool(allow_review),
+            # 创建时快照换票开关：自动任务跟随注册面板勾选（关了就不在本机换票）；
+            # 手动任务是显式操作（CPA/grok2api 必须换票），始终允许本机换票
+            "token_exchange_allowed": (
+                True if not automatic else bool(self.token_exchanger_enabled())
+            ),
             "created_at": _utc_now(),
             "started_at": "",
             "finished_at": "",
@@ -986,7 +994,13 @@ class ImportJobManager:
             allow_review=bool(previous.get("allow_review")),
             automatic=False,
         )
-        return result
+        # 重试任务继承原任务的换票开关快照（创建时已定，不随 checkbox 实时变化）
+        with self._lock:
+            stored = self._jobs.get(result.get("id"))
+            if stored is not None and "token_exchange_allowed" in previous:
+                stored["token_exchange_allowed"] = bool(previous.get("token_exchange_allowed"))
+                self._persist(stored)
+        return self._safe_job(stored or result)
 
     def clear_history(self) -> int:
         with self._lock:
@@ -1056,6 +1070,10 @@ class ImportJobManager:
         cached = load_cpa_token(cpa_path) if not force else None
         if cached and is_auth_token_usable(cached):
             return cached, "cpa-cache"
+        # 换票开关关闭（注册侧取消勾选）时仅自动任务受控：纯 SSO 不再跑本机 device flow；
+        # 导入中心手动任务是显式操作，CPA/grok2api 目标必须换票，不受此开关影响
+        if not bool(job.get("token_exchange_allowed", True)):
+            return None, "自动换 token 已关闭（注册面板已取消勾选）"
         # Multiple ordinary uploads may run concurrently, but xAI device flow
         # remains strictly serial to avoid approval/rate-limit collisions.
         with self._oauth_lock:
@@ -1116,6 +1134,7 @@ class ImportJobManager:
                     proxy_url=str(sub2.get("proxy_url") or ""),
                     register_proxy=register_proxy,
                     tls_verify=bool(sub2.get("tls_verify", True)),
+                    allow_local_device_flow=bool(job.get("token_exchange_allowed", True)),
                 )
             if not (result.get("ok") or int(result.get("success") or 0) > 0):
                 raise RuntimeError(result.get("message") or "Sub2API 导入失败")
@@ -1160,7 +1179,14 @@ class ImportJobManager:
             "grok2api_build",
             "grok2api_jiujiu",
         }
-        if oauth_targets.intersection(account["targets"]):
+        # 换票开关关闭（注册面板取消勾选）时，自动任务不跑本机 device flow：
+        # 必须有 token 才能导入的目标直接跳过（sub2api 走服务端 sso-to-oauth 纯 SSO 导入）
+        from g.device_flow import is_auth_token_usable
+
+        exchange_allowed = bool(job.get("token_exchange_allowed", True))
+        needs_token = bool(oauth_targets.intersection(account["targets"]))
+        token_required_targets = {"cpa_local", "cpa_remote", "grok2api_build"}
+        if needs_token and exchange_allowed:
             token, reason = self._token_for(account, job)
             account["_oauth_attempted"] = True
             account["_oauth_error"] = "" if token is not None else reason
@@ -1169,6 +1195,19 @@ class ImportJobManager:
                 self._set_target(job, account["id"], target, "skipped", "任务已取消")
                 continue
             try:
+                if (
+                    target in token_required_targets
+                    and not exchange_allowed
+                    and not is_auth_token_usable(token)
+                ):
+                    self._set_target(
+                        job,
+                        account["id"],
+                        target,
+                        "skipped",
+                        "自动换 token 已关闭且无可用缓存 token",
+                    )
+                    continue
                 self._set_target(job, account["id"], target, "running", "正在执行")
                 result, token, auth = self._run_target(target, account, token, auth, job, register_proxy)
                 details = {k: v for k, v in result.items() if k not in ("ok", "access_token", "refresh_token", "id_token")}
