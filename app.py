@@ -874,6 +874,7 @@ class RegisterRunner:
                     "success",
                 )
                 # 换 token 与自动导入都在后台做：注册主循环不等，吞吐不受影响
+                # （浏览器内已换票的号在这里也会进 _exchange_token，直接走缓存分支）
                 if self.auto_exchange_token and account.get("sso"):
                     self._start_token_exchange(account, wid, self._run_seq)
                 else:
@@ -942,6 +943,18 @@ class RegisterRunner:
         """SSO → access_token（device flow），成功后回写结果文件并交给导入服务。"""
         logp = f"[W{wid}]"
         email = str(account.get("email") or "")
+        # 注册子进程已在浏览器内顺手换票（GROK_BROWSER_CONVERT，默认开）：
+        # auth_token 已带回且有效时直接记账，不再重复走 device flow。
+        existing = account.get("auth_token")
+        if isinstance(existing, dict) and is_auth_token_usable(existing):
+            account["token_status"] = "ok"
+            account.pop("token_error", None)
+            with self._lock:
+                self.token_ok_count += 1
+            self._persist_result(account)
+            self._log(f"{logp} 换 token 成功：{email} · 注册浏览器内已换，直接缓存", "success")
+            self._queue_auto_import(account, logp)
+            return
         try:
             with self._token_lock:
                 # 复用节点：账号记录的注册节点 → 代理池租约 → 环境代理，不强制直连

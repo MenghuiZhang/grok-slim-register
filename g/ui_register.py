@@ -222,6 +222,15 @@ def find_sso(cookies: list[dict[str, Any]]) -> tuple[str, str]:
     return sso, sso_rw
 
 
+def probe_proxy_geo(
+    proxy_option: dict[str, str], timeout: float = 12.0, attempts: int = 2
+) -> Optional[dict]:
+    """兼容包装：实现在 g.proxy_pool（注册与换票浏览器路径共用）。"""
+    from g.proxy_pool import probe_proxy_geo as _impl
+
+    return _impl(proxy_option, timeout=timeout, attempts=attempts)
+
+
 def fill_code(page, code: str) -> str:
     digits = re.sub(r"[^0-9A-Za-z]", "", code)
     boxes = page.locator(CODE_SEL)
@@ -745,90 +754,10 @@ def type_password_system(page, value: str) -> bool:
 
 
 def build_proxy_option(spec: str) -> tuple[dict[str, str], bool]:
-    """把账号租约的 spec 拆成 Camoufox 的 proxy 参数。
+    """兼容包装：实现在 g.proxy_pool（注册与换票浏览器路径共用）。"""
+    from g.proxy_pool import build_proxy_option as _impl
 
-    Playwright 的 ``proxy`` 不接受把账号密码塞进 server URL，必须分开传；
-    返回 ``(option, is_loopback)``，loopback 决定是否开 geoip 对齐。
-    """
-    from g.proxy_pool import parse_proxy_line
-
-    parsed = parse_proxy_line(spec)
-    scheme = parsed["scheme"]
-    # Playwright Firefox 只认 socks5:（socks5h: 会被当 HTTP 代理 → NS_ERROR_NET_RESET）
-    if scheme == "socks5h":
-        scheme = "socks5"
-    option: dict[str, str] = {
-        "server": f"{scheme}://{parsed['host']}:{parsed['port']}"
-    }
-    if parsed["username"]:
-        option["username"] = parsed["username"]
-        option["password"] = parsed["password"]
-    loopback = parsed["host"] in ("127.0.0.1", "localhost", "::1")
-    return option, loopback
-
-
-GEO_PROBE_ENDPOINTS: tuple[tuple[str, str], ...] = (
-    # ip-api 免费版只有 HTTP(80)，不少机场/节点只放行 443 或屏蔽明文 HTTP，
-    # 所以按 HTTPS 端点优先的顺序逐个尝试，命中一个即返回。
-    ("ipwho.is", "https://ipwho.is/"),
-    ("ip.sb", "https://api.ip.sb/geoip"),
-    ("ip-api", "http://ip-api.com/json/?fields=status,country,countryCode,timezone,lat,lon,query"),
-)
-
-
-def _normalize_geo(provider: str, data: object) -> Optional[dict]:
-    """把不同探测端点的响应归一化为 {ip, cc, tz}；失败返回 None。"""
-    if not isinstance(data, dict):
-        return None
-    if provider == "ip-api":
-        if data.get("status") != "success" or not data.get("query"):
-            return None
-        return {"ip": data.get("query"), "cc": data.get("countryCode"), "tz": data.get("timezone")}
-    if provider == "ipwho.is":
-        tz = data.get("timezone")
-        tz = tz.get("id") if isinstance(tz, dict) else tz
-        if not data.get("ip"):
-            return None
-        return {"ip": data.get("ip"), "cc": data.get("country_code"), "tz": tz}
-    if provider == "ip.sb":
-        if not data.get("ip"):
-            return None
-        return {"ip": data.get("ip"), "cc": data.get("country_code"), "tz": data.get("timezone")}
-    return None
-
-
-def probe_proxy_geo(
-    proxy_option: dict[str, str], timeout: float = 12.0, attempts: int = 2
-) -> Optional[dict]:
-    """通过节点出口探测一次 IP 地理，用于日志与 geoip 对齐决策。
-
-    返回归一化的 {ip, cc, tz}；所有端点都失败返回 None。
-    Camoufox 的 ``geoip=True`` 会在启动阶段自行查出口 IP，查不通会直接报错，
-    所以这里先预探测：探测成功的节点才启用 geoip 对齐。
-    """
-    from urllib.parse import quote
-
-    import requests
-
-    server = proxy_option.get("server", "")
-    url = server
-    if proxy_option.get("username"):
-        auth = quote(proxy_option["username"], safe="")
-        pwd = quote(proxy_option.get("password", ""), safe="")
-        url = server.replace("://", f"://{auth}:{pwd}@", 1)
-    # Firefox 对 socks5 默认走代理远端解析 DNS，探测保持同语义（socks5h）
-    url = url.replace("socks5://", "socks5h://", 1)
-    proxies = {"http": url, "https": url}
-    for provider, endpoint in GEO_PROBE_ENDPOINTS:
-        for _ in range(max(1, attempts)):
-            try:
-                resp = requests.get(endpoint, proxies=proxies, timeout=timeout)
-                geo = _normalize_geo(provider, resp.json())
-            except Exception:
-                continue
-            if geo:
-                return geo
-    return None
+    return _impl(spec)
 
 
 def turnstile_solved(page) -> bool:
@@ -960,6 +889,62 @@ def click_turnstile_macos(
             # 没点到 checkbox 或挑战失败：先等 widget 回落，再试下一个坐标
             page.wait_for_timeout(1500)
     return "exhausted"
+
+
+def _convert_token_in_browser(page, result: dict[str, Any], log) -> None:
+    """注册浏览器内直接完成 device flow 换票（场景 A：无需注入 SSO）。
+
+    复用注册浏览器的登录态/指纹/代理，HTTP 只做 device code 申请与 token 轮询。
+    成功后把 token 写入 result["auth_token"]；任何失败仅记录，不影响注册结果。
+    """
+    from g.device_flow import (
+        _browser_click_allow,
+        _device_flow_error_kind,
+        _mark_device_flow_cooldown,
+        _poll_device_token,
+        _request_device_code,
+    )
+
+    log("浏览器内换票开始（device flow）…")
+    dc = _request_device_code(timeout=20)
+    if not dc or dc.get("_error") or not dc.get("device_code"):
+        log(f"device/code 申请失败: {(dc or {}).get('_error') or '无 device_code'}")
+        return
+
+    user_code = str(dc["user_code"])
+    verify_uri = (
+        dc.get("verification_uri_complete")
+        or f"https://accounts.x.ai/oauth2/device?user_code={user_code}"
+    )
+    page.goto(verify_uri, wait_until="domcontentloaded", timeout=60000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+
+    approved = _browser_click_allow(page, log=lambda msg, level="info": log(msg))
+    if not approved.get("ok"):
+        error = str(approved.get("error") or "device approve 失败")
+        if _device_flow_error_kind(error) == "rate_limited":
+            _mark_device_flow_cooldown(30)
+        log(f"浏览器内批准失败: {error}")
+        return
+
+    token = _poll_device_token(
+        dc["device_code"],
+        int(dc.get("interval") or 5),
+        int(dc.get("expires_in") or 1800),
+        timeout=45,
+    )
+    if isinstance(token, dict) and token.get("_error"):
+        log(f"批准成功但 token 轮询失败: {token.get('_error')}")
+        return
+    if not isinstance(token, dict) or not (token.get("access_token") or token.get("key")):
+        log("批准成功但未拿到 access_token")
+        return
+
+    result["auth_token"] = token
+    log(f"浏览器内换票成功（refresh_token: {bool(token.get('refresh_token'))}）")
 
 
 class BrowserCrashGuard:
@@ -1424,6 +1409,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         if sso:
             result.update(ok=True, sso=sso, sso_rw=sso_rw)
             log(f"拿到 sso（{len(sso)} 字符）")
+            # 浏览器内顺手换票：登录态、指纹、代理全部复用，无需注入 SSO。
+            # GROK_BROWSER_CONVERT=0 可关（xAI 页面改版时不拖累注册主流程）。
+            if str(os.getenv("GROK_BROWSER_CONVERT", "1")).strip().lower() not in (
+                "0", "false", "no", "off",
+            ):
+                try:
+                    _convert_token_in_browser(page, result, log)
+                except Exception as exc:
+                    log(f"浏览器内换票异常（不影响注册结果）: {exc}")
         elif not result["error"]:
             hint = has_error(page_text(page))
             result["error"] = f"页面报错: {hint}" if hint else "未拿到 sso"

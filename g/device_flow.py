@@ -11,25 +11,22 @@ import json
 import os
 import random
 import re
+import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
-from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
 from curl_cffi import requests
 
 from g.proxy_pool import parse_proxy_line
 
 # 基础配置
 site_url = "https://accounts.x.ai"
-# chrome120 在部分 Windows/curl_cffi 组合下连 accounts.x.ai 会 curl(28) 超时，改用更稳指纹
+# device code / token 端点仍走 curl_cffi；浏览器批准路径见 _approve_with_browser
 DEFAULT_IMPERSONATE = "chrome131"
-# device flow / 导入专用指纹池（TLS 失败时轮换）
-DEVICE_FLOW_IMPERSONATES = ("chrome131", "chrome136", "chrome124", "chrome")
 # 与 grokcli-2api sso_to_auth_json 保持一致：只有 device flow 换到 token 才算可导入
 OIDC_ISSUER = "https://auth.x.ai"
 GROK_CLI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
@@ -184,6 +181,14 @@ def _wait_device_flow_cooldown() -> None:
         time.sleep(min(remain, 120.0))
 
 
+def _device_flow_log(message: str, level: str = "info") -> None:
+    """浏览器批准日志转发：走 OpenCode 日志面板时由 app 注入；此处默认打印。"""
+    try:
+        print(f"[device-flow] {message}", flush=True)
+    except Exception:
+        pass
+
+
 def _proxy_kw(proxy_spec: str | None = None, *, force_direct: bool = False) -> dict:
     """统一代理参数；账号级显式值优先，空值表示直连。"""
     if force_direct:
@@ -192,64 +197,6 @@ def _proxy_kw(proxy_spec: str | None = None, *, force_direct: bool = False) -> d
         mapped = _proxy_map(proxy_spec)
         return {"proxies": mapped} if mapped else {"proxies": {"http": "", "https": ""}}
     return {"proxies": PROXIES} if PROXIES else {}
-
-
-def _parse_device_consent_page(html: str, page_url: str = "") -> dict[str, str]:
-    """
-    从 OAuth 同意页 HTML 解析当前版本的 approve form。
-    页面仍是 form POST（非 server action）；字段/action URL 以页面为准自动跟随。
-    """
-    out = {
-        "approve_url": f"{OIDC_ISSUER}/oauth2/device/approve",
-        "user_code": "",
-        "principal_type": "User",
-        "principal_id": "",
-        "user_id": "",
-    }
-    text = html or ""
-    try:
-        soup = BeautifulSoup(text, "html.parser")
-        form = None
-        for f in soup.find_all("form"):
-            action = (f.get("action") or "").lower()
-            if "device/approve" in action or "approve" in action:
-                form = f
-                break
-        if form is None and soup.find("form"):
-            form = soup.find("form")
-        if form is not None:
-            action = (form.get("action") or "").strip()
-            if action:
-                out["approve_url"] = urljoin(page_url or f"{site_url}/", action)
-            for inp in form.find_all("input"):
-                name = (inp.get("name") or "").strip()
-                val = inp.get("value")
-                if val is None:
-                    val = ""
-                if name == "user_code" and val:
-                    out["user_code"] = str(val)
-                elif name == "principal_type" and val:
-                    out["principal_type"] = str(val)
-                elif name == "principal_id":
-                    out["principal_id"] = str(val)
-    except Exception:
-        pass
-    # RSC/flight 里的 userId（表单 principal_id 常为空，由前端 state 填）
-    m = re.search(r'"userId":"([0-9a-fA-F-]{36})"', text)
-    if m:
-        out["user_id"] = m.group(1)
-        if not out["principal_id"]:
-            out["principal_id"] = m.group(1)
-    m = re.search(
-        r'approveUrl\\?":\\?"(https:[^"\\]+device/approve[^"\\]*)"',
-        text,
-    )
-    if m and not out.get("approve_url"):
-        out["approve_url"] = m.group(1).replace("\\/", "/")
-    m = re.search(r'"approveUrl":"(https:[^"]+device/approve[^"]*)"', text)
-    if m:
-        out["approve_url"] = m.group(1)
-    return out
 
 
 def _request_device_code(timeout: int = 20, *, proxy_spec: str | None = None) -> dict | None:
@@ -398,6 +345,189 @@ def _poll_device_token(
     return {"_error": last_err}
 
 
+# ---------------------------------------------------------------------------
+# 浏览器批准路径：2026-10 起 approve 表单需要浏览器内 Castle SDK 现场生成
+# castle_request_token，纯 HTTP 提交（无论是否带 consent_token）都会 403
+# "Request could not be verified"。因此 verify→consent→approve 必须走真浏览器。
+# 实测 Camoufox 可过 Cloudflare；普通 Playwright headless 会被 "Sorry, you
+# have been blocked" 拦截。device/code 与 oauth2/token 仍走纯 HTTP（不受限）。
+# ---------------------------------------------------------------------------
+
+# 浏览器批准各步超时（秒）
+_BROWSER_NAV_TIMEOUT = 60_000
+_BROWSER_CONFIRM_TIMEOUT = 20_000
+_BROWSER_CONSENT_TIMEOUT = 25_000
+
+
+def _browser_click_allow(page: Any, *, log=None) -> dict[str, Any]:
+    """在已打开的浏览器 page 上完成 device flow 批准。
+
+    page 登录态由调用方保证：注册流程传注册浏览器现成 page（无需注入 SSO），
+    存量转换走 _approve_with_browser 自启 Camoufox 并注入 sso cookie。
+
+    返回 {"ok": True} 或 {"ok": False, "error": "..."}；
+    error 命中 rate_limited / 会话无效 / denied 语义，与旧 HTTP 路径一致。
+    """
+
+    def _emit(msg: str, level: str = "info") -> None:
+        if callable(log):
+            log(msg, level)
+
+    try:
+        page.set_default_timeout(_BROWSER_NAV_TIMEOUT)
+    except Exception:
+        pass
+
+    def _shot(name: str) -> None:
+        # GROK_DEVICE_FLOW_DEBUG=1 时截图到 /tmp 供排障；失败静默
+        if str(os.getenv("GROK_DEVICE_FLOW_DEBUG", "")).strip().lower() in (
+            "1", "true", "yes", "on",
+        ):
+            try:
+                page.screenshot(path=f"/tmp/device_flow_{name}.png")
+            except Exception:
+                pass
+
+    # 已在确认页（verification_uri_complete 落地）或中途页都直接用当前 URL
+    url_now = (page.url or "").lower()
+
+    # sign-in / sign-up：SSO 登录态失效（注入场景）——与旧路径语义一致
+    if "sign-in" in url_now or "sign-up" in url_now:
+        return {"ok": False, "error": f"会话无效（跳转 {page.url}）"}
+    if "rate_limited" in url_now:
+        return {"ok": False, "error": f"探测 rate_limited: {page.url}"}
+
+    # 确认页（"Sign in to Grok Build" + Continue）：点击进入同意页。
+    # verification_uri_complete 自带 user_code 时页面直接显示确认码。
+    try:
+        cont = page.locator(
+            "button:has-text('Continue'), button:has-text('Fortfahren'), "
+            "button[type='submit']"
+        ).first
+        cont.wait_for(state="visible", timeout=_BROWSER_CONFIRM_TIMEOUT)
+        cont.click()
+        _emit("device flow: 已点击 Continue")
+    except Exception as exc:
+        # 可能已在同意页（无 Continue 的版本），不视为致命
+        _emit(f"device flow: Continue 未点击（{str(exc)[:80]}，可能已在同意页）", "warn")
+    try:
+        page.wait_for_load_state("networkidle", timeout=15_000)
+    except Exception:
+        pass
+    _shot("consent")
+
+    url_now = (page.url or "").lower()
+    if "sign-in" in url_now or "sign-up" in url_now:
+        return {"ok": False, "error": f"会话无效（跳转 {page.url}）"}
+    if "rate_limited" in url_now:
+        return {"ok": False, "error": f"device verify 失败: {page.url}"}
+
+    # 同意页：点 Allow（页面 JS 现场生成 castle_request_token 后自动重提交）
+    try:
+        allow = page.locator("button[value='allow']").first
+        allow.wait_for(state="visible", timeout=_BROWSER_CONSENT_TIMEOUT)
+    except Exception as exc:
+        _shot("no-allow")
+        text = ""
+        try:
+            text = page.locator("body").inner_text()[:200]
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "error": f"device verify 失败（同意页未出现 Allow: {str(exc)[:80]}）: {text[:120]}",
+        }
+    try:
+        allow.click()
+        _emit("device flow: 已点击 Allow")
+    except Exception as exc:
+        return {"ok": False, "error": f"device approve 异常: {exc}"}
+    try:
+        page.wait_for_load_state("networkidle", timeout=20_000)
+    except Exception:
+        pass
+    # approve 表单 POST + Castle mint 需要一点时间
+    page.wait_for_timeout(2500)
+    _shot("done")
+
+    url_now = (page.url or "").lower()
+    if "denied=1" in url_now:
+        return {"ok": False, "error": f"device approve 被拒绝: {page.url}"}
+    if "rate_limited" in url_now:
+        return {"ok": False, "error": f"device approve 失败: {page.url}"}
+    # 成功页：URL 落 done，或页面出现 Authorized 文案
+    body_text = ""
+    try:
+        body_text = page.locator("body").inner_text()[:400].lower()
+    except Exception:
+        pass
+    if "done" in url_now or "authorized" in body_text:
+        return {"ok": True, "error": None}
+    return {
+        "ok": False,
+        "error": f"device approve 失败: {page.url}（页面未见授权成功）",
+    }
+
+
+def _browser_launch_kwargs(proxy_spec: str | None) -> dict[str, Any]:
+    """换票专用 Camoufox 启动参数（对齐 ui_register 的约定）。"""
+    headless = str(os.getenv("GROK_CAMOUFOX_HEADLESS", "1")).strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+    kwargs: dict[str, Any] = {
+        "headless": headless,
+        "os": "macos" if sys.platform == "darwin" else "linux",
+        "locale": "en-US",
+        "humanize": True,
+    }
+    if proxy_spec:
+        try:
+            from g.proxy_pool import build_proxy_option, probe_proxy_geo
+
+            option, loopback = build_proxy_option(proxy_spec)
+            kwargs["proxy"] = option
+            if not loopback:
+                # 指纹与出口 IP 对齐；预检失败仅跳过对齐，不阻断换票
+                try:
+                    geo = probe_proxy_geo(option)
+                    if geo and geo.get("ip"):
+                        from camoufox.geolocation import get_geolocation
+
+                        get_geolocation(str(geo["ip"]))
+                        kwargs["geoip"] = str(geo["ip"])
+                except Exception:
+                    pass
+        except Exception:
+            # 代理解析失败按直连走（与注册子进程行为一致）
+            kwargs.pop("proxy", None)
+    return kwargs
+
+
+def _approve_with_browser(
+    sso: str,
+    verify_uri: str,
+    *,
+    proxy_spec: str | None = None,
+    log=None,
+) -> dict[str, Any]:
+    """存量转换路径：自启 Camoufox、注入 sso cookie、完成批准。"""
+    from camoufox.sync_api import Camoufox
+
+    kwargs = _browser_launch_kwargs(proxy_spec)
+    with Camoufox(**kwargs) as browser:
+        ctx = browser.new_context()
+        ctx.add_cookies([
+            {"name": "sso", "value": sso, "domain": ".x.ai", "path": "/"},
+        ])
+        page = ctx.new_page()
+        page.goto(verify_uri, wait_until="domcontentloaded", timeout=_BROWSER_NAV_TIMEOUT)
+        try:
+            page.wait_for_load_state("networkidle", timeout=15_000)
+        except Exception:
+            pass
+        return _browser_click_allow(page, log=log)
+
+
 def _rfc3339_ns(ts: float) -> str:
     """与 grokcli-2api 一致的 expires_at 格式。"""
     from datetime import datetime, timezone
@@ -452,18 +582,18 @@ def sso_device_flow_to_token(
     proxy_spec: str | None = None,
 ) -> dict[str, Any]:
     """
-    与 grokcli-2api sso_to_auth_json.sso_to_token 同路径：
-    SSO cookie → 登录态探测 → OIDC device verify/approve → access_token。
+    SSO cookie → device code（HTTP）→ 浏览器批准 → access_token（HTTP 轮询）。
+
+    2026-10 起 approve 表单需要浏览器内 Castle SDK 现场生成 castle_request_token，
+    纯 HTTP 提交一律 403，因此 verify→consent→approve 固定走 Camoufox
+    （存量转换场景由本函数自启浏览器并注入 sso cookie），不再有 HTTP 回退。
 
     issue_token:
       - None: 跟全局 DEVICE_FLOW_ISSUE_TOKEN（默认 True，换到 access_token）
       - True: 批准后轮询 token（生产路径）
       - False: 批准成功即返回（仅诊断用）
 
-    加固：
-    - 同意页字段/approve URL 从当前 HTML 自动解析（跟随页面版本）
-    - 全局冷却（rate_limited 后拉长间隔）
-    - TLS/超时失败时轮换 impersonate
+    impersonate 参数保留仅为兼容旧调用方签名，已无实际作用。
     """
     s = (sso or "").strip()
     if not s:
@@ -473,302 +603,118 @@ def sso_device_flow_to_token(
 
     do_token = DEVICE_FLOW_ISSUE_TOKEN if issue_token is None else bool(issue_token)
     payload = decode_jwt_payload(s)
-    proxy_kw = _proxy_kw(proxy_spec)
-
-    # 指纹列表：调用方指定的优先，再轮换稳妥指纹
-    fps: list[str] = []
-    if impersonate:
-        fps.append(impersonate)
-    for x in DEVICE_FLOW_IMPERSONATES:
-        if x not in fps:
-            fps.append(x)
-    # 最多试 3 个指纹，避免一次导入拖太久
-    fps = fps[:3]
+    del impersonate  # 兼容保留：浏览器路径不再使用 TLS 指纹轮换
 
     # 有限并发 + 全局冷却：限流时大家一起让路，不把成功率打穿
     with _DEVICE_FLOW_SEM:
         _wait_device_flow_cooldown()
         last_err = "device flow 失败"
 
-        for fp_idx, fp in enumerate(fps):
-            try:
-                sess = requests.Session(impersonate=fp)
-                # 浏览器同源 cookie：.x.ai 即可覆盖 accounts / auth
-                sess.cookies.set("sso", s, domain=".x.ai", path="/")
-
-                r = sess.get(
-                    "https://accounts.x.ai/",
-                    timeout=timeout,
-                    allow_redirects=True,
-                    **proxy_kw,
-                )
-                final_url = (r.url or "").lower()
-                if "error=rate_limited" in final_url or "rate_limited" in final_url:
-                    last_err = f"探测 rate_limited: {r.url}"
-                    _mark_device_flow_cooldown(25 + 10 * fp_idx)
-                    # 限流：立刻让路，别继续换指纹连打
-                    break
-                if "sign-in" in final_url or "sign-up" in final_url:
-                    return {
-                        "ok": False,
-                        "error": f"会话无效（跳转 {r.url}）",
-                        "token": None,
-                        "payload": payload,
-                    }
-                if r.status_code >= 400:
-                    last_err = f"探测 HTTP {r.status_code}"
-                    continue
-            except Exception as e:
-                last_err = f"探测异常: {e}"
-                kind = _device_flow_error_kind(last_err)
-                if kind in ("timeout", "tls"):
-                    # 换指纹再试
-                    time.sleep(0.6 + 0.4 * fp_idx)
-                    continue
-                return {
-                    "ok": False,
-                    "error": last_err,
-                    "token": None,
-                    "payload": payload,
-                }
-
-            dc = _request_device_code(timeout=max(15, int(timeout)), proxy_spec=proxy_spec)
-            if not dc or dc.get("_error"):
-                last_err = (dc or {}).get("_error") or "device/code 申请失败"
-                if _device_flow_error_kind(last_err) == "rate_limited":
-                    _mark_device_flow_cooldown(30)
-                # device/code 与指纹无关，不必换指纹空转
-                return {
-                    "ok": False,
-                    "error": last_err,
-                    "token": None,
-                    "payload": payload,
-                }
-            if not dc.get("device_code") or not dc.get("user_code"):
-                last_err = "device/code 申请失败（无 device_code）"
-                return {
-                    "ok": False,
-                    "error": last_err,
-                    "token": None,
-                    "payload": payload,
-                }
-
-            user_code = str(dc["user_code"])
-            verify_uri = (
-                dc.get("verification_uri_complete")
-                or f"{site_url}/oauth2/device?user_code={user_code}"
-            )
-            consent_html = ""
-            consent_url = ""
-            try:
-                # 浏览器顺序：先打开 complete URI，再 POST verify
-                sess.get(
-                    verify_uri,
-                    timeout=timeout,
-                    allow_redirects=True,
-                    **proxy_kw,
-                )
-                r = sess.post(
-                    f"{OIDC_ISSUER}/oauth2/device/verify",
-                    data={"user_code": user_code},
-                    headers={
-                        "Content-Type": "application/x-www-form-urlencoded",
-                        "Origin": site_url,
-                        "Referer": verify_uri,
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    },
-                    timeout=timeout,
-                    allow_redirects=True,
-                    **proxy_kw,
-                )
-                ru = r.url or ""
-                consent_url = ru
-                consent_html = r.text or ""
-                if "rate_limited" in ru.lower() or "error=rate_limited" in ru.lower():
-                    last_err = f"device verify 失败: {ru}"
-                    _mark_device_flow_cooldown(30 + 10 * fp_idx)
-                    time.sleep(1.5)
-                    break
-                if "consent" not in ru:
-                    last_err = f"device verify 失败: {ru}"
-                    # 非限流的 verify 失败（如 code 过期）换指纹意义不大，直接返回
-                    if "error=" in ru.lower() and "rate_limited" not in ru.lower():
-                        return {
-                            "ok": False,
-                            "error": last_err,
-                            "token": None,
-                            "payload": payload,
-                        }
-                    continue
-            except Exception as e:
-                last_err = f"device verify 异常: {e}"
-                kind = _device_flow_error_kind(last_err)
-                if kind in ("timeout", "tls"):
-                    time.sleep(0.6 + 0.4 * fp_idx)
-                    continue
-                return {
-                    "ok": False,
-                    "error": last_err,
-                    "token": None,
-                    "payload": payload,
-                }
-
-            # 关键：同意页 form 字段 / approve URL 跟随当前页面版本，不写死
-            page = _parse_device_consent_page(consent_html, consent_url)
-            approve_url = page.get("approve_url") or f"{OIDC_ISSUER}/oauth2/device/approve"
-            # 浏览器 SSR 表单 principal_id 为空；部分号带 userId 也能过——两种都试
-            pid_candidates: list[str] = []
-            page_pid = (page.get("principal_id") or page.get("user_id") or "").strip()
-            # 先空（与页面 hidden 默认一致），再 userId
-            pid_candidates.append("")
-            if page_pid and page_pid not in pid_candidates:
-                pid_candidates.append(page_pid)
-
-            approve_headers = {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Origin": site_url,
-                "Referer": consent_url or verify_uri,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Upgrade-Insecure-Requests": "1",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "same-site",
-                "Sec-Fetch-User": "?1",
+        dc = _request_device_code(timeout=max(15, int(timeout)), proxy_spec=proxy_spec)
+        if not dc or dc.get("_error"):
+            last_err = (dc or {}).get("_error") or "device/code 申请失败"
+            if _device_flow_error_kind(last_err) == "rate_limited":
+                _mark_device_flow_cooldown(30)
+            return {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
             }
-            approved_ok = False
-            try:
-                for pid in pid_candidates:
-                    approve_data = {
-                        "user_code": page.get("user_code") or user_code,
-                        "action": "allow",
-                        "principal_type": page.get("principal_type") or "User",
-                        "principal_id": pid,
-                    }
-                    r = sess.post(
-                        approve_url,
-                        data=approve_data,
-                        headers=approve_headers,
-                        timeout=timeout,
-                        allow_redirects=True,
-                        **proxy_kw,
-                    )
-                    ru = r.url or ""
-                    body_low = (r.text or "").lower()
-                    if "rate_limited" in ru.lower():
-                        last_err = f"device approve 失败: {ru}"
-                        _mark_device_flow_cooldown(30)
-                        approved_ok = False
-                        break
-                    # deny 会落到 done?denied=1 —— 这是真拒绝，不是假成功
-                    if "denied=1" in ru.lower():
-                        last_err = f"device approve 被拒绝: {ru}"
-                        return {
-                            "ok": False,
-                            "error": last_err,
-                            "token": None,
-                            "payload": payload,
-                            "approved": False,
-                        }
-                    if "done" in ru or "authorized" in body_low:
-                        approved_ok = True
-                        # 有多个 pid 候选时，本轮只 approve 一次（code 已消耗）
-                        break
-                if not approved_ok and "rate_limited" not in str(last_err):
-                    last_err = f"device approve 失败: {ru if 'ru' in locals() else 'no response'}"
-                    return {
-                        "ok": False,
-                        "error": last_err,
-                        "token": None,
-                        "payload": payload,
-                        "approved": False,
-                    }
-                if not approved_ok:
-                    break
-            except Exception as e:
-                last_err = f"device approve 异常: {e}"
-                kind = _device_flow_error_kind(last_err)
-                if kind in ("timeout", "tls"):
-                    time.sleep(0.6 + 0.4 * fp_idx)
-                    continue
-                return {
-                    "ok": False,
-                    "error": last_err,
-                    "token": None,
-                    "payload": payload,
-                }
+        if not dc.get("device_code") or not dc.get("user_code"):
+            last_err = "device/code 申请失败（无 device_code）"
+            return {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
+            }
 
-            # 诊断模式：只验证同意授权，不下发 token
-            if not do_token:
-                _mark_device_flow_cooldown(_DEVICE_FLOW_SUCCESS_COOLDOWN)
-                return {
-                    "ok": True,
-                    "error": None,
-                    "token": None,
-                    "payload": payload,
-                    "has_refresh": False,
-                    "impersonate": fp,
-                    "approved": True,
-                    "issue_token": False,
-                    "approve_url": approve_url,
-                    "user_code": user_code,
-                    "note": "device approve 成功；已跳过 token 下发（GROK_DEVICE_FLOW_ISSUE_TOKEN=0）",
-                }
+        user_code = str(dc["user_code"])
+        verify_uri = (
+            dc.get("verification_uri_complete")
+            or f"{site_url}/oauth2/device?user_code={user_code}"
+        )
 
-            token = _poll_device_token(
-                dc["device_code"],
-                int(dc.get("interval") or 5),
-                int(dc.get("expires_in") or 1800),
-                timeout=45,
-                proxy_spec=proxy_spec,
+        try:
+            approved = _approve_with_browser(
+                s, verify_uri, proxy_spec=proxy_spec, log=_device_flow_log
             )
-            if isinstance(token, dict) and token.get("_error"):
-                last_err = (
-                    f"device approve 后 token 失败: {token.get('_error')}"
-                )
-                # code 已完成 approve 后仍 invalid_grant / access_denied，属于明确终止；
-                # 换 TLS 指纹重做整条 flow 不会修复，只会把坏号耗时放大数倍。
-                terminal = str(token.get("_error") or "").lower()
-                if any(
-                    marker in terminal
-                    for marker in ("invalid_grant", "access denied", "access_denied")
-                ):
-                    return {
-                        "ok": False,
-                        "error": last_err,
-                        "token": None,
-                        "payload": payload,
-                        "approved": True,
-                    }
-                time.sleep(1.0)
-                continue
-            if not token or not (token.get("access_token") or token.get("key")):
-                # 假批准典型症状：页面已 done，但 token 仍 invalid_grant
-                last_err = (
-                    "device approve 后未拿到 access_token"
-                    "（常见 invalid_grant/Access denied：会话无法真正授权）"
-                )
-                # approve 已成功但 token 轮询失败：短歇后换指纹整条重来
-                time.sleep(1.0)
-                continue
+        except Exception as e:
+            last_err = f"device approve 浏览器异常: {e}"
+            kind = _device_flow_error_kind(last_err)
+            if kind == "rate_limited":
+                _mark_device_flow_cooldown(30)
+            return {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
+            }
+        if not approved.get("ok"):
+            last_err = str(approved.get("error") or "device approve 失败")
+            kind = _device_flow_error_kind(last_err)
+            if kind == "rate_limited":
+                _mark_device_flow_cooldown(30)
+            result: dict[str, Any] = {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
+            }
+            if "denied" in last_err:
+                result["approved"] = False
+            return result
 
-            # 成功后轻冷却，降低连打 rate_limited（比旧 2s 更省）
+        # 诊断模式：只验证同意授权，不下发 token
+        if not do_token:
             _mark_device_flow_cooldown(_DEVICE_FLOW_SUCCESS_COOLDOWN)
             return {
                 "ok": True,
                 "error": None,
-                "token": token,
+                "token": None,
                 "payload": payload,
-                "has_refresh": bool(token.get("refresh_token")),
-                "impersonate": fp,
+                "has_refresh": False,
                 "approved": True,
-                "issue_token": True,
+                "issue_token": False,
+                "user_code": user_code,
+                "note": "device approve 成功；已跳过 token 下发（GROK_DEVICE_FLOW_ISSUE_TOKEN=0）",
             }
 
-        if _device_flow_error_kind(last_err) == "rate_limited":
-            _mark_device_flow_cooldown(20)
+        token = _poll_device_token(
+            dc["device_code"],
+            int(dc.get("interval") or 5),
+            int(dc.get("expires_in") or 1800),
+            timeout=45,
+            proxy_spec=proxy_spec,
+        )
+        if isinstance(token, dict) and token.get("_error"):
+            last_err = f"device approve 后 token 失败: {token.get('_error')}"
+            return {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
+                "approved": True,
+            }
+        if not token or not (token.get("access_token") or token.get("key")):
+            last_err = "device approve 后未拿到 access_token"
+            return {
+                "ok": False,
+                "error": last_err,
+                "token": None,
+                "payload": payload,
+                "approved": True,
+            }
+
+        # 成功后轻冷却，降低连打 rate_limited（比旧 2s 更省）
+        _mark_device_flow_cooldown(_DEVICE_FLOW_SUCCESS_COOLDOWN)
         return {
-            "ok": False,
-            "error": last_err,
-            "token": None,
+            "ok": True,
+            "error": None,
+            "token": token,
             "payload": payload,
+            "has_refresh": bool(token.get("refresh_token")),
+            "approved": True,
+            "issue_token": True,
         }
