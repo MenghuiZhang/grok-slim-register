@@ -894,17 +894,26 @@ def click_turnstile_macos(
 
 
 def _convert_token_in_browser(
+    browser,
     page,
     result: dict[str, Any],
     log,
     shot_dir: Path | None = None,
 ) -> None:
-    """注册浏览器内直接完成 device flow 换票（场景 A：无需注入 SSO）。
+    """注册浏览器内直接完成 device flow 换票（无需注入 SSO）。
 
-    复用注册浏览器的登录态/指纹/代理，HTTP 只做 device code 申请与 token 轮询。
+    代理模式（GROK_DEVICE_CODE_PROXY）决定换票走的出口：
+    - auto：直接复用注册 page（同 context，登录态/指纹/代理全复用）
+    - direct / specific：同一浏览器进程里开一个新 context（独立指纹 + 独立出口：
+      direct 不设代理走直连，specific 走指定代理），从注册 context 搬运
+      cookies + localStorage，绕开机场网关对 auth.x.ai 的域名拦截
+
+    HTTP 只做 device code 申请与 token 轮询（跟换票 context 同出口）。
     成功后把 token 写入 result["auth_token"]；任何失败仅记录，不影响注册结果。
     shot_dir 提供时（注册流程的 round-* 目录）失败自动截图留证。
     """
+    import os as _os
+
     from g.device_flow import (
         _browser_click_allow,
         _device_flow_error_kind,
@@ -915,26 +924,105 @@ def _convert_token_in_browser(
         _request_device_code,
         _write_flow_meta,
     )
+    from g.proxy_pool import build_proxy_option
 
     # 注册页截图目录没传（手动单跑等场景）时自建，失败同样有现场
     flow_dir = shot_dir or _new_device_flow_shot_dir("in-register")
+
+    dcp_raw = str(_os.getenv("GROK_DEVICE_CODE_PROXY", "") or "").strip().lower()
+    exchange_page = page
+    exchange_ctx = None
+    if dcp_raw in ("direct", "local", "none"):
+        # 同浏览器新 context 直连换票
+        log("换票模式 direct：同一浏览器新 context（直连）+ 搬运登录态…")
+        try:
+            from camoufox import NewContext
+
+            exchange_ctx = NewContext(browser, timezone_id="UTC")
+        except ImportError:
+            exchange_ctx = browser.new_context()
+        _migrate_browser_state(page, exchange_ctx, log)
+        exchange_page = exchange_ctx.new_page()
+    elif dcp_raw and dcp_raw not in ("auto", "same", "register"):
+        # 同浏览器新 context 走特定代理
+        log("换票模式 specific：同一浏览器新 context（特定代理）+ 搬运登录态…")
+        option, _loopback = build_proxy_option(dcp_raw)
+        try:
+            from camoufox import NewContext
+
+            try:
+                exchange_ctx = NewContext(browser, proxy=option)
+            except Exception as exc:
+                # Camoufox 会经代理查出口 IP 推导 timezone/WebRTC，查询失败即抛。
+                # 跳过 geo 对齐（诚实暴露 timezone 与代理出口不一致，不影响换票）
+                log(f"代理 geo 对齐失败（{str(exc)[:60]}），跳过 timezone/WebRTC 推导重试", "warn")
+                exchange_ctx = NewContext(
+                    browser, proxy=option,
+                    webrtc_ip="127.0.0.1", timezone_id="UTC",
+                )
+        except ImportError:
+            exchange_ctx = browser.new_context(proxy=option)
+        _migrate_browser_state(page, exchange_ctx, log)
+        exchange_page = exchange_ctx.new_page()
 
     def _emit(msg: str, level: str = "info") -> None:
         log(msg, level)
 
     def _shot(name: str) -> None:
         try:
-            page.screenshot(path=str(Path(flow_dir) / f"{int(time.time())}-browser_convert_{name}.png"))
+            exchange_page.screenshot(path=str(Path(flow_dir) / f"{int(time.time())}-browser_convert_{name}.png"))
         except Exception:
             pass
 
     def _meta(**fields: Any) -> None:
         try:
-            fields.setdefault("url", page.url)
+            fields.setdefault("url", exchange_page.url)
         except Exception:
             pass
         _write_flow_meta(Path(flow_dir), source="in-register", **fields)
 
+    try:
+        _do_device_flow(exchange_page, result, log, _emit, _shot, _meta, flow_dir)
+    finally:
+        if exchange_ctx is not None:
+            try:
+                exchange_ctx.close()
+            except Exception:
+                pass
+
+
+def _migrate_browser_state(src_page, dst_ctx, log) -> None:
+    """把注册 context 的登录态（cookies + localStorage）搬进换票 context。
+
+    Castle 设备信任落在 cookie/localStorage 上，只注入 sso 会被当成新设备拒绝
+    （Request could not be verified），所以全量搬运。
+    """
+    try:
+        cookies = src_page.context.cookies()
+        if cookies:
+            dst_ctx.add_cookies(cookies)
+        log(f"登录态搬运：cookies {len(cookies)} 枚")
+    except Exception as exc:
+        log(f"cookies 搬运失败（继续，仅用 sso）: {exc}", "warn")
+    # localStorage 按 origin 隔离。注册页当前就在 accounts.x.ai，原地读，
+    # 不导航（避免把注册页带走）；其它 origin 的 localStorage 对 Castle 无关紧要
+    try:
+        data = src_page.evaluate("() => JSON.stringify(Object.entries(localStorage))")
+        items = json.loads(data or "[]")
+        if items:
+            # add_init_script 在新 context 每个页面文档创建前执行，
+            # 等价于「这些 localStorage 一直在」
+            dst_ctx.add_init_script(
+                """(pairs) => { for (const [k, v] of pairs) localStorage.setItem(k, v); }""",
+                items,
+            )
+            log(f"登录态搬运：localStorage {len(items)} 条（{src_page.url.split('/')[2]}）")
+    except Exception as exc:
+        log(f"localStorage 搬运失败（不阻断）: {exc}", "warn")
+
+
+def _do_device_flow(page, result, log, _emit, _shot, _meta, flow_dir) -> None:
+    """device flow 主体：在给定的 page 上完成申请→批准→轮询。"""
     log("浏览器内换票开始（device flow）…")
     dc = _request_device_code(timeout=20)
     if not dc or dc.get("_error") or not dc.get("device_code"):
@@ -982,9 +1070,9 @@ def _convert_token_in_browser(
 
     result["auth_token"] = token
     log(f"浏览器内换票成功（refresh_token: {bool(token.get('refresh_token'))}）")
-    if not shot_dir:
-        # 用调用方目录时成功也留证据链（注册流程成功会清 round 目录）；
-        # 自建目录时成功即清，不留个人 token 相关现场
+    if not flow_dir or str(flow_dir).startswith("logs/ui_register"):
+        pass  # round 目录由注册流程管理（成功清理/失败保留）
+    else:
         shutil.rmtree(flow_dir, ignore_errors=True)
 
 
@@ -1456,7 +1544,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "0", "false", "no", "off",
             ):
                 try:
-                    _convert_token_in_browser(page, result, log, shot_dir=shot_dir)
+                    _convert_token_in_browser(browser, page, result, log, shot_dir=shot_dir)
                 except Exception as exc:
                     log(f"浏览器内换票异常（不影响注册结果）: {exc}", "warn")
         elif not result["error"]:

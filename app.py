@@ -947,10 +947,11 @@ class RegisterRunner:
                     # 复用节点：账号记录的注册节点 → 代理池租约 → 环境代理，不强制直连
                     proxy_spec, lease, proxy_label = _lease_token_proxy(account)
                 else:
-                    # 独立换票：浏览器 + 匿名 HTTP 全部走指定出口（""=直连）
+                    # 兜底：注册浏览器内换票（direct/specific 走新 context）异常没拿到
+                    # token 时，控制台用独立浏览器按同模式重试（""=直连 / URL=特定代理）
                     proxy_spec = "" if dcp_mode == "direct" else (dcp_override or "")
                     lease = None
-                    proxy_label = "直连（独立换票）" if dcp_mode == "direct" else f"特定代理（独立换票）"
+                    proxy_label = "直连（独立换票兜底）" if dcp_mode == "direct" else "特定代理（独立换票兜底）"
                 self._log(
                     f"{logp} 换 token 开始：{email or '（无邮箱）'} · {proxy_label}",
                     "info",
@@ -3679,9 +3680,9 @@ def start():
     workers = 1
 
     cfg_env = read_env_file()
-    # 换票代理模式：direct/specific 时注册浏览器内换票直接关闭（注册子进程不做 device flow），
-    # 注册成功后由控制台注入 SSO 独立换票（整链路直连/特定代理，绕开机场对 auth.x.ai 的拦截）
-    dcp_mode, _ = _device_code_proxy_override()
+    # 换票代理模式（GROK_DEVICE_CODE_PROXY）由注册子进程读取：
+    # direct/specific 时子进程在同一浏览器里开新 context（独立出口）完成换票，
+    # 浏览器不关闭，无需控制台另行独立换票
     if "auto_exchange" in body:
         # 注册成功后是否自动把 SSO 换成 access_token（默认开）
         exchange_on = bool(body.get("auto_exchange"))
@@ -3695,8 +3696,6 @@ def start():
             # 落盘之后才注入：只影响本轮子进程，不覆盖 .env 里的用户配置，
             # 重新勾选后立即恢复默认行为
             cfg_env["GROK_BROWSER_CONVERT"] = "0"
-    if dcp_mode in ("direct", "specific"):
-        cfg_env["GROK_BROWSER_CONVERT"] = "0"
     active_domains: list[str] = []
     if domain_pool.summary().get("total"):
         active_domains = domain_pool.active_domains()
