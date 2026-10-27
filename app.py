@@ -2985,6 +2985,19 @@ def health():
     return jsonify({"ok": True, "service": "grok-register-ui"})
 
 
+@app.get("/favicon.ico")
+def favicon():
+    """Browsers request /favicon.ico at the site root, not under /static."""
+    return send_from_directory(
+        app.static_folder, "favicon.ico", mimetype="image/vnd.microsoft.icon",
+    )
+
+
+@app.get("/apple-touch-icon.png")
+def apple_touch_icon():
+    return send_from_directory(app.static_folder, "apple-touch-icon.png")
+
+
 @app.get("/api/status")
 def status():
     data = runner.get_status()
