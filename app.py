@@ -5,6 +5,7 @@ Grok 注册机 Web 控制台
 """
 import json
 import hmac
+import hashlib
 import os
 import random
 import re
@@ -16,11 +17,11 @@ import time
 import uuid
 import concurrent.futures
 from functools import wraps
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 
 from g.log_buffer import LogBuffer
 from g.device_flow import (
@@ -79,6 +80,276 @@ except Exception:
 enforce_storage_limits(BASE_DIR)
 
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
+
+# ============================================================================
+# 登录认证（会话 cookie + .env 账号，默认 admin/admin，可用 UI_USERNAME/UI_PASSWORD 覆盖）
+# ============================================================================
+UI_DEFAULT_USERNAME = "admin"
+UI_DEFAULT_PASSWORD = "admin"
+UI_SESSION_LIFETIME_DAYS = 7
+UI_LOGIN_MAX_FAILS = 5
+UI_LOGIN_LOCK_SECONDS = 15 * 60
+UI_PASSWORD_MIN_LENGTH = 8
+
+# 登录白名单：静态资源 / 登录登出 / Docker healthcheck 永远放行
+UI_PUBLIC_PATHS = frozenset({
+    "/login",
+    "/logout",
+    "/favicon.ico",
+    "/apple-touch-icon.png",
+    "/api/health",
+})
+
+# 会话签名密钥：持久化到 data/.ui_secret_key，容器重启不掉登录态
+_SECRET_KEY_PATH = BASE_DIR / "data" / ".ui_secret_key"
+
+
+def _ui_credentials() -> tuple[str, str]:
+    """当前登录账号：UI_USERNAME/UI_PASSWORD 覆盖，缺省 admin/admin。
+
+    UI_PASSWORD 支持 sha256:<hex> 哈希格式（网页改密后写回 .env 的格式）。
+    """
+    username = (os.getenv("UI_USERNAME") or "").strip() or UI_DEFAULT_USERNAME
+    raw = (os.getenv("UI_PASSWORD") or "").strip()
+    return username, raw or UI_DEFAULT_PASSWORD
+
+
+def _load_or_create_secret_key() -> str:
+    """会话签名密钥 = 随机密钥 + 当前密码哈希派生值。
+
+    绑定密码：改密后旧 cookie 全部失效（包括未走 /logout 直接丢弃的会话），
+    防止"改密踢不掉已泄露 cookie"的问题。
+    """
+    random_part = ""
+    try:
+        if _SECRET_KEY_PATH.exists():
+            random_part = _SECRET_KEY_PATH.read_text(encoding="utf-8").strip()
+        if not random_part:
+            _SECRET_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            random_part = uuid.uuid4().hex + uuid.uuid4().hex
+            _SECRET_KEY_PATH.write_text(random_part, encoding="utf-8")
+            try:
+                _SECRET_KEY_PATH.chmod(0o600)
+            except OSError:
+                pass
+    except Exception:
+        # data/ 不可写时退化为进程内随机密钥（重启即全员下线，但不影响功能）
+        random_part = uuid.uuid4().hex + uuid.uuid4().hex
+    _, stored = _ui_credentials()
+    digest = hashlib.sha256(f"{random_part}::{stored}".encode("utf-8")).hexdigest()
+    return digest
+
+
+app.secret_key = _load_or_create_secret_key()
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# 非 localhost 访问（VPS 部署）时建议置 True，需 HTTPS；默认 False 兼容 http 内网
+app.config["SESSION_COOKIE_SECURE"] = (
+    str(os.getenv("UI_SESSION_COOKIE_SECURE") or "").strip().lower() in ("1", "true", "yes")
+)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=UI_SESSION_LIFETIME_DAYS)
+
+
+def _hash_ui_password(plain: str) -> str:
+    return "sha256:" + hashlib.sha256(plain.encode("utf-8")).hexdigest()
+
+
+def _ui_password_matches(supplied: str) -> bool:
+    _, stored = _ui_credentials()
+    if stored.startswith("sha256:"):
+        expect = stored[len("sha256:"):]
+        got = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(got, expect)
+    return hmac.compare_digest(supplied, stored)
+
+
+def _is_default_credentials() -> bool:
+    username, password = _ui_credentials()
+    return username == UI_DEFAULT_USERNAME and password == UI_DEFAULT_PASSWORD
+
+
+# 简单内存级防爆破：IP -> (失败次数, 锁定截止时间戳)
+_login_failures: dict[str, dict] = {}
+_login_guard_lock = threading.Lock()
+
+
+def _client_ip() -> str:
+    fwd = str(request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    return fwd or (request.remote_addr or "unknown")
+
+
+def _login_locked_remaining(ip: str) -> int:
+    with _login_guard_lock:
+        info = _login_failures.get(ip)
+        if not info:
+            return 0
+        locked_until = info.get("locked_until", 0)
+        if not locked_until:
+            return 0
+        remain = int(locked_until - time.time())
+        if remain <= 0:
+            # 锁已过期：清掉整个条目重新计数
+            _login_failures.pop(ip, None)
+            return 0
+        return remain
+
+
+def _record_login_fail(ip: str) -> None:
+    with _login_guard_lock:
+        now = time.time()
+        info = _login_failures.setdefault(ip, {"fails": 0, "locked_until": 0, "last": 0})
+        # 失败计数只在锁定窗口内累积，超窗自动重新计数
+        if now - info.get("last", 0) > UI_LOGIN_LOCK_SECONDS:
+            info["fails"] = 0
+        info["fails"] += 1
+        info["last"] = now
+        if info["fails"] >= UI_LOGIN_MAX_FAILS:
+            info["locked_until"] = now + UI_LOGIN_LOCK_SECONDS
+            info["fails"] = 0
+
+
+def _clear_login_fails(ip: str) -> None:
+    with _login_guard_lock:
+        _login_failures.pop(ip, None)
+
+
+@app.before_request
+def _ui_auth_guard():
+    """全局登录拦截：白名单放行；API 返回 401 JSON；页面 302 到登录页。"""
+    path = request.path
+    if path in UI_PUBLIC_PATHS or path.startswith("/static/"):
+        return None
+    # 现有 MONITOR_TOKEN Bearer 探针不受登录影响
+    authorization = str(request.headers.get("Authorization") or "")
+    if authorization.lower().startswith("bearer ") and MONITOR_TOKEN:
+        supplied = authorization[7:].strip()
+        if hmac.compare_digest(supplied, MONITOR_TOKEN):
+            return None
+    if session.get("ui_authed"):
+        return None
+    if path.startswith("/api/"):
+        return jsonify({"ok": False, "message": "登录已过期，请重新登录"}), 401
+    return redirect(url_for("login", next=path))
+
+
+@app.get("/login")
+def login():
+    if session.get("ui_authed"):
+        return redirect(url_for("index"))
+    error = None
+    next_url = request.args.get("next") or request.form.get("next") or "/"
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/"
+    return render_template("login.html", error=error, next=next_url,
+                           locked_remaining=0, is_default=_is_default_credentials())
+
+
+@app.post("/login")
+def login_submit():
+    next_url = request.form.get("next") or "/"
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/"
+    ip = _client_ip()
+    locked = _login_locked_remaining(ip)
+    if locked > 0:
+        mins = locked // 60
+        return render_template(
+            "login.html",
+            error=f"失败次数过多，已锁定，请 {mins} 分钟后重试",
+            next=next_url, locked_remaining=locked, is_default=_is_default_credentials(),
+        ), 429
+    username = str(request.form.get("username") or "").strip()
+    password = str(request.form.get("password") or "")
+    expected_user, _ = _ui_credentials()
+    if username != expected_user or not _ui_password_matches(password):
+        _record_login_fail(ip)
+        logs.emit(f"登录失败：用户名或密码错误（IP {ip}）", "error")
+        return render_template(
+            "login.html", error="用户名或密码错误", next=next_url,
+            locked_remaining=0, is_default=_is_default_credentials(),
+        ), 401
+    _clear_login_fails(ip)
+    session.clear()
+    session["ui_authed"] = True
+    session["ui_user"] = username
+    session.permanent = True
+    logs.emit(f"用户 {username} 登录成功（IP {ip}）", "success")
+    return redirect(next_url)
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear()
+    # 显式让客户端 cookie 过期（session.clear() 不会删除客户端 cookie）
+    resp = redirect(url_for("login"))
+    resp.delete_cookie("session")
+    return resp
+
+
+@app.get("/api/ui/session")
+def ui_session_info():
+    """前端查询当前登录态与默认密码警告。"""
+    if not session.get("ui_authed"):
+        return jsonify({"ok": False, "authed": False}), 401
+    return jsonify({
+        "ok": True,
+        "authed": True,
+        "username": session.get("ui_user", ""),
+        "is_default_password": _is_default_credentials(),
+    })
+
+
+@app.post("/api/ui/change-password")
+def ui_change_password():
+    if not session.get("ui_authed"):
+        return jsonify({"ok": False, "message": "未登录"}), 401
+    body = request.get_json(silent=True) or {}
+    old_password = str(body.get("old_password") or "")
+    new_password = str(body.get("new_password") or "")
+    username = str(body.get("username") or "").strip() or session.get("ui_user", UI_DEFAULT_USERNAME)
+    if not _ui_password_matches(old_password):
+        return jsonify({"ok": False, "message": "当前密码不正确"}), 400
+    if len(new_password) < UI_PASSWORD_MIN_LENGTH:
+        return jsonify({"ok": False, "message": f"新密码至少 {UI_PASSWORD_MIN_LENGTH} 位"}), 400
+    if new_password == old_password:
+        return jsonify({"ok": False, "message": "新密码不能与当前密码相同"}), 400
+    # 写回 .env（哈希落盘，避免明文密码留存）
+    try:
+        _write_ui_credentials_to_env(username, _hash_ui_password(new_password))
+    except Exception as exc:  # noqa: BLE001
+        logs.emit(f"修改密码失败：写入 .env 出错：{exc}", "error")
+        return jsonify({"ok": False, "message": f"写入配置失败：{exc}"}), 500
+    os.environ["UI_USERNAME"] = username
+    os.environ["UI_PASSWORD"] = _hash_ui_password(new_password)
+    # 轮换会话签名密钥：所有旧 cookie（含本会话）立即失效，需用新密码重新登录
+    app.secret_key = _load_or_create_secret_key()
+    logs.emit("登录密码已修改，所有会话已失效，请用新密码重新登录", "success")
+    return jsonify({"ok": True})
+
+
+def _write_ui_credentials_to_env(username: str, password_hash: str) -> None:
+    """把 UI_USERNAME/UI_PASSWORD 就地更新（或追加）到 .env，其余行保持原样。"""
+    lines = []
+    if ENV_PATH.exists():
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    updates = {"UI_USERNAME": username, "UI_PASSWORD": password_hash}
+    seen = set()
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in updates:
+                out.append(f"{key}={updates[key]}")
+                seen.add(key)
+                continue
+        out.append(line)
+    if out and out[-1].strip():
+        out.append("")
+    for key in ("UI_USERNAME", "UI_PASSWORD"):
+        if key not in seen:
+            out.append(f"{key}={updates[key]}")
+    ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 def require_monitor_token(fn):

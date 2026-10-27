@@ -570,6 +570,26 @@
     }
   </style>
   <script>
+    // 全局 401 拦截：会话过期时任何 API 请求自动跳转登录页
+    (function () {
+      var origFetch = window.fetch;
+      window.fetch = function () {
+        return origFetch.apply(this, arguments).then(function (resp) {
+          if (resp.status === 401) {
+            var ct = resp.headers.get('content-type') || '';
+            if (ct.indexOf('application/json') !== -1) {
+              try { return resp.clone().json().then(function (d) {
+                if (d && d.message && d.message.indexOf('登录') !== -1) {
+                  location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+                }
+                return resp;
+              }); } catch (e) { /* fallthrough */ }
+            }
+          }
+          return resp;
+        });
+      };
+    })();
     window.addEventListener('DOMContentLoaded', () => {
       const host = document.createElement('div');
       host.id = 'globalToastHost';

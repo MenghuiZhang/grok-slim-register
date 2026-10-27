@@ -67,6 +67,126 @@
         <span>返回主控台</span>
       </a>
       {% endif %}
+      <button type="button" id="navChangePwdBtn" title="修改登录密码"
+              class="hidden sm:inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-ink-900/10 bg-white text-ink-700 hover:border-brand-500 hover:text-brand-600 shadow-sm transition-colors">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        <span>改密</span>
+      </button>
+      <a href="/logout" title="退出登录"
+         class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-ink-900/10 bg-white text-ink-700 hover:border-rose-500 hover:text-rose-600 shadow-sm transition-colors no-underline">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>退出</span>
+      </a>
+    </div>
+  </div>
+  <!-- 默认密码警告条（admin/admin 未改时显示） -->
+  <div id="defaultPwdBanner" class="hidden border-t border-amber-300/40 bg-amber-50">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-1.5 flex items-center justify-center gap-2 text-xs text-amber-800">
+      <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <span>当前仍使用默认密码 <b class="font-mono">admin / admin</b>，存在安全风险，</span>
+      <button type="button" id="bannerChangePwdBtn" class="underline font-semibold hover:text-amber-900">立即修改</button>
     </div>
   </div>
 </header>
+
+<!-- 修改密码弹窗 -->
+<div id="changePwdModal" class="hidden fixed inset-0 z-50 items-center justify-center p-4" style="background:rgba(24,21,17,0.45)">
+  <div class="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-ink-900/10 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="m-0 text-base font-bold text-ink-900">修改登录密码</h3>
+      <button type="button" id="changePwdClose" class="w-7 h-7 inline-flex items-center justify-center rounded-lg text-ink-500 hover:bg-paper-100 hover:text-ink-900 transition-colors">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="space-y-3.5">
+      <div>
+        <label class="block mb-1 text-xs font-bold text-ink-800" for="cpOld">当前密码</label>
+        <input id="cpOld" type="password" autocomplete="current-password" class="w-full h-10 rounded-lg border-[1.5px] border-paper-300 px-3 text-sm outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/15" placeholder="输入当前密码">
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-bold text-ink-800" for="cpUser">用户名</label>
+        <input id="cpUser" type="text" autocomplete="username" class="w-full h-10 rounded-lg border-[1.5px] border-paper-300 px-3 text-sm outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/15" placeholder="登录用户名（默认 admin）">
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-bold text-ink-800" for="cpNew">新密码</label>
+        <input id="cpNew" type="password" autocomplete="new-password" class="w-full h-10 rounded-lg border-[1.5px] border-paper-300 px-3 text-sm outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/15" placeholder="至少 8 位">
+      </div>
+      <div>
+        <label class="block mb-1 text-xs font-bold text-ink-800" for="cpNew2">确认新密码</label>
+        <input id="cpNew2" type="password" autocomplete="new-password" class="w-full h-10 rounded-lg border-[1.5px] border-paper-300 px-3 text-sm outline-none focus:border-brand-500 focus:ring-[3px] focus:ring-brand-500/15" placeholder="再输入一次">
+      </div>
+      <div id="cpMsg" class="hidden text-xs font-mono rounded-lg px-3 py-2"></div>
+      <button type="button" id="cpSubmit" class="w-full h-10 rounded-lg border-none text-white text-sm font-bold cursor-pointer" style="background:linear-gradient(135deg,#2574eb 0%,#169c62 100%)">确认修改</button>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    // 修改密码弹窗 + 默认密码警告条
+    var modal = document.getElementById('changePwdModal');
+    var banner = document.getElementById('defaultPwdBanner');
+    function openModal() {
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      var old = document.getElementById('cpOld');
+      if (old) old.focus();
+    }
+    function closeModal() {
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    ['navChangePwdBtn', 'bannerChangePwdBtn'].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', openModal);
+    });
+    var closeBtn = document.getElementById('changePwdClose');
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+
+    var submit = document.getElementById('cpSubmit');
+    var msg = document.getElementById('cpMsg');
+    if (submit) submit.addEventListener('click', function () {
+      var oldPwd = document.getElementById('cpOld').value;
+      var user = document.getElementById('cpUser').value.trim();
+      var newPwd = document.getElementById('cpNew').value;
+      var newPwd2 = document.getElementById('cpNew2').value;
+      msg.classList.remove('hidden');
+      msg.style.background = '#f2efe9'; msg.style.color = '#6e675b';
+      msg.textContent = '提交中…';
+      if (newPwd !== newPwd2) {
+        msg.style.background = '#fff1f2'; msg.style.color = '#be123c';
+        msg.textContent = '两次输入的新密码不一致';
+        return;
+      }
+      fetch('/api/ui/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_password: oldPwd, new_password: newPwd, username: user })
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          if (res.ok && res.d.ok) {
+            msg.style.background = '#ecfdf5'; msg.style.color = '#0f7647';
+            msg.textContent = '密码修改成功，3 秒后跳转登录页…';
+            setTimeout(function () { location.href = '/logout'; }, 3000);
+          } else {
+            msg.style.background = '#fff1f2'; msg.style.color = '#be123c';
+            msg.textContent = (res.d && res.d.message) || '修改失败';
+          }
+        })
+        .catch(function () {
+          msg.style.background = '#fff1f2'; msg.style.color = '#be123c';
+          msg.textContent = '网络错误，请重试';
+        });
+    });
+
+    // 登录态与默认密码检测
+    fetch('/api/ui/session').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (d && d.ok && d.is_default_password && banner) {
+        banner.classList.remove('hidden');
+      }
+    }).catch(function () {});
+  })();
+</script>
