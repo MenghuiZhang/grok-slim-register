@@ -124,6 +124,7 @@ RUN test -x "$(python -m camoufox path)" && echo "BROWSER_BINARY_OK"
 COPY app.py convert_sso_json.py log_storage.py ./
 COPY g/ ./g/
 COPY templates/ ./templates/
+COPY static/ ./static/
 
 ENV RUNNING_IN_DOCKER=1
 
