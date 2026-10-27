@@ -1,12 +1,79 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Grok Register">
   <defs>
-    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2574eb"/>
-      <stop offset="0.5" stop-color="#1b62d1"/>
-      <stop offset="1" stop-color="#169c62"/>
+    <!-- Primary Rich Brand Gradient (Deep Royal Blue -> Brand Blue -> Emerald Teal) -->
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e40af"/>
+      <stop offset="48%" stop-color="#2574eb"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+
+    <!-- Top-Left Ambient Highlight -->
+    <radialGradient id="glow-tl" cx="0.2" cy="0.15" r="0.7">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.38"/>
+      <stop offset="55%" stop-color="#38bdf8" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#2574eb" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Bottom-Right Emerald Glow -->
+    <radialGradient id="glow-br" cx="0.85" cy="0.88" r="0.6">
+      <stop offset="0%" stop-color="#6ee7b7" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Inner Glass Rim Gradient -->
+    <linearGradient id="rim-grad" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.36"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+
+    <!-- Spark Gradient -->
+    <linearGradient id="spark-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#a7f3d0"/>
     </linearGradient>
   </defs>
-  <rect x="14" y="14" width="228" height="228" rx="55" fill="url(#brand)"/>
-  <path fill="none" stroke="#fff" stroke-width="36" d="M150.5 89 A45 45 0 1 0 173 128"/>
-  <path fill="none" stroke="#fff" stroke-width="36" d="M191 128 H124"/>
+
+  <!-- Main Squircle Base -->
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#bg-grad)"/>
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#glow-tl)"/>
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#glow-br)"/>
+
+  <!-- Subtle Grok Orbital Ring Accent -->
+  <path d="M 46 194 A 136 136 0 0 1 204 54" fill="none" stroke="#ffffff" stroke-opacity="0.11" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Inner Specular Border (Strictly Inset) -->
+  <rect x="14.5" y="14.5" width="227" height="227" rx="53.5" fill="none" stroke="url(#rim-grad)" stroke-width="2"/>
+
+  <!-- Soft Depth Shadow for Glyph -->
+  <g transform="translate(0, 5)" opacity="0.18">
+    <path
+      d="M 163.9 91.5 A 56 56 0 1 0 180 131 H 130"
+      fill="none"
+      stroke="#06182c"
+      stroke-width="26"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M 190 48 Q 190 69 211 69 Q 190 69 190 90 Q 190 69 169 69 Q 190 69 190 48 Z"
+      fill="#06182c"
+    />
+  </g>
+
+  <!-- Precision Geometric 'G' (Center 124,131, Radius 56, Exact 0-deg Tangent) + AI Spark -->
+  <g>
+    <path
+      d="M 163.9 91.5 A 56 56 0 1 0 180 131 H 130"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="26"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M 190 48 Q 190 69 211 69 Q 190 69 190 90 Q 190 69 169 69 Q 190 69 190 48 Z"
+      fill="url(#spark-grad)"
+    />
+  </g>
 </svg>
