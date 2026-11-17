@@ -36,7 +36,7 @@
 - Python 3.10+
 - Camoufox 浏览器（首次 `python -m camoufox fetch` 下载）
 - macOS 下可用系统级键盘输入提升兼容性（无权限时自动回退到 Playwright 注入）
-- `camoufox` 版本已锁在 `0.5.8`：它对应的浏览器 build 是 `156.0.1-beta.36`，
+- `camoufox` 版本已锁在 `0.5.9`：它对应的浏览器 build 是 `158.0.1-beta.41`，
   升级 camoufox 会同时换浏览器版本，需要同步 `vendor/` 离线包和 CI 下载的 zip
 
 ```bash
@@ -135,26 +135,26 @@ python app.py     # http://127.0.0.1:3333
 
 ```bash
 # 1) 直连镜像（推荐国内网络）：浏览器 ~1.28GB，绕开 GitHub 直连
-CAMOUFOX_ZIP_URL=https://<你的镜像>/https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.36/camoufox-156.0.1-beta.36-lin.arm64.zip \
+CAMOUFOX_ZIP_URL=https://<你的镜像>/https://github.com/daijro/camoufox/releases/download/v158.0.1-beta.41/camoufox-158.0.1-beta.41-lin.arm64.zip \
 CAMOUFOX_MODEL_URL=https://<你的镜像>/https://github.com/scrapfly/fingerprint-generator/releases/download/model-2/2026/model-release.zip \
 docker compose up -d --build
 
 # 2) 在线 fetch，并指定仓库：Official / CoryKing / JWriter20（见 camoufox 包内 repos.yml）
-CAMOUFOX_INSTALL=online CAMOUFOX_VERSION=Official/stable/156.0.1-beta.36 docker compose up -d --build
+CAMOUFOX_INSTALL=online CAMOUFOX_VERSION=Official/stable/158.0.1-beta.41 docker compose up -d --build
 ```
 
 > **为什么“一直在查找 camoufox 版本”**：走 `online` 时 camoufox 会先 `Syncing repositories...`，
 > 依次拉 `Official`(约 0.5s)、`CoryKing`(常 30s+)、`JWriter20`，共 30–60s；之后才开始下载 1.28GB 浏览器包，
 > 非 TTY 下没有进度条，看着就像卡住。指定 `CAMOUFOX_ZIP_URL` 可以完全跳过这两步。
 >
-> **注意**：camoufox 包用 `browser-pin.json` 固定浏览器 build（当前 `156.0.1-beta.36`），
+> **注意**：camoufox 包用 `browser-pin.json` 固定浏览器 build（当前 `158.0.1-beta.41`），
 > 镜像里的 zip 必须是同一个 release，否则 `camoufox path` 找不到可用版本。换版本要连 `requirements.txt` 里的
 > camoufox 一起升级。
 
 离线构建则把两个文件放进 `vendor/`（目录已 gitignore，仅保留 `.gitkeep` 占位）：
 
-1. `camoufox-156.0.1-beta.36-lin.arm64.zip`
-   <https://github.com/daijro/camoufox/releases/download/v156.0.1-beta.36/camoufox-156.0.1-beta.36-lin.arm64.zip>
+1. `camoufox-158.0.1-beta.41-lin.arm64.zip`
+   <https://github.com/daijro/camoufox/releases/download/v158.0.1-beta.41/camoufox-158.0.1-beta.41-lin.arm64.zip>
 2. `model-release.zip`
    <https://github.com/scrapfly/fingerprint-generator/releases/download/model-2/2026/model-release.zip>
 

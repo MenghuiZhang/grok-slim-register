@@ -35,12 +35,12 @@ RUN python /tmp/patch_playwright_driver.py
 #                         路径最可控、不查版本、不同步仓库
 #   CAMOUFOX_MODEL_URL  — 可选，配套的 fpgen 模型 zip；不填则跳过模型（指纹功能受限）
 #   CAMOUFOX_INSTALL    — offline（默认，解压 vendor/ 离线包）/ online（camoufox fetch）
-#   CAMOUFOX_VERSION    — online 模式下的仓库/版本，如 Official/stable/156.0.1-beta.36
+#   CAMOUFOX_VERSION    — online 模式下的仓库/版本，如 Official/stable/158.0.1-beta.41
 ARG CAMOUFOX_INSTALL=offline
 ARG CAMOUFOX_VERSION=""
 ARG CAMOUFOX_ZIP_URL=""
 ARG CAMOUFOX_MODEL_URL=""
-# 直连 URL 且文件名不是 camoufox-<version>-<build>-... 时，用它显式声明版本，如 156.0.1-beta.36
+# 直连 URL 且文件名不是 camoufox-<version>-<build>-... 时，用它显式声明版本，如 158.0.1-beta.41
 ARG CAMOUFOX_BROWSER_SPEC=""
 ENV CAMOUFOX_BROWSER_SPEC=${CAMOUFOX_BROWSER_SPEC}
 

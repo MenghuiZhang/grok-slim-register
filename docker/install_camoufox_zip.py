@@ -9,7 +9,7 @@
 3. 若给了 model-release.zip，离线装 fpgen 指纹模型（否则跳过）
 
 注意：camoufox 包会按 browser-pin.json 固定浏览器 build
-（当前为 156.0.1-beta.36），镜像里的 zip 必须是同一个 release，
+（当前为 158.0.1-beta.41），镜像里的 zip 必须是同一个 release，
 否则 `python -m camoufox path` 找不到可用版本。
 """
 
@@ -29,9 +29,9 @@ CACHE = pathlib.Path("/root/.cache/camoufox")
 REPO_NAME = "official"
 DEST_ROOT = CACHE / "browsers" / REPO_NAME
 EXTRACT = pathlib.Path("/tmp/camoufox_extract")
-# camoufox-156.0.1-beta.36-lin.arm64.zip
+# camoufox-158.0.1-beta.41-lin.arm64.zip
 NAME_RE = re.compile(r"camoufox-(\d+\.\d+\.\d+)-([A-Za-z0-9.]+)-(?:lin|win|mac)", re.I)
-# 156.0.1-beta.36
+# 158.0.1-beta.41
 SPEC_RE = re.compile(r"^(\d+\.\d+\.\d+)-([A-Za-z0-9.]+)$")
 
 
@@ -54,14 +54,14 @@ def _read_meta(zf: zipfile.ZipFile, zip_path: pathlib.Path) -> dict:
             if isinstance(data, dict) and data.get("version") and data.get("build"):
                 return data
 
-    # 官方 release 资源本身不带 version.json，允许显式指定 156.0.1-beta.36
+    # 官方 release 资源本身不带 version.json，允许显式指定 158.0.1-beta.41
     spec = os.environ.get("CAMOUFOX_BROWSER_SPEC", "").strip()
     if spec:
         match = SPEC_RE.match(spec)
         if not match:
             sys.exit(
                 f"[camoufox-zip] CAMOUFOX_BROWSER_SPEC={spec!r} 格式应为 <version>-<build>，"
-                "例如 156.0.1-beta.36"
+                "例如 158.0.1-beta.41"
             )
         return {"version": match.group(1), "build": match.group(2)}
 
@@ -71,7 +71,7 @@ def _read_meta(zf: zipfile.ZipFile, zip_path: pathlib.Path) -> dict:
             f"[camoufox-zip] 无法识别版本：{zip_path.name} 里没有 version.json，"
             "文件名也不符合 camoufox-<version>-<build>-<os>.<arch>.zip。\n"
             "  办法：把下载文件按原名保存（camoufox-<版本>-<build>-lin.arm64.zip），"
-            "或加 --build-arg CAMOUFOX_BROWSER_SPEC=156.0.1-beta.36"
+            "或加 --build-arg CAMOUFOX_BROWSER_SPEC=158.0.1-beta.41"
         )
     return {"version": match.group(1), "build": match.group(2)}
 

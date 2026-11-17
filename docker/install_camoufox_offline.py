@@ -3,7 +3,7 @@
 构建参数 CAMOUFOX_INSTALL=offline（默认）时由 Dockerfile 调用。
 vendor/ 不入库（见 .gitignore），本地构建前需准备：
 
-1. camoufox-156.0.1-beta.36-lin.arm64.zip
+1. camoufox-158.0.1-beta.41-lin.arm64.zip
 2. model-release.zip
 3. camoufox-cache/{config.json,version.json,.0.5_FLAG,geoip/}
 """
@@ -19,9 +19,9 @@ import camoufox.fpgen_model as fm
 
 VENDOR = pathlib.Path("/tmp/vendor")
 CACHE = pathlib.Path("/root/.cache/camoufox")
-BROWSER_DIR_NAME = "156.0.1-beta.36-0ad5663e"
+BROWSER_DIR_NAME = "158.0.1-beta.41-60e25f6e"
 DEST = CACHE / "browsers" / "official" / BROWSER_DIR_NAME
-BROWSER_ZIP = VENDOR / "camoufox-156.0.1-beta.36-lin.arm64.zip"
+BROWSER_ZIP = VENDOR / "camoufox-158.0.1-beta.41-lin.arm64.zip"
 
 
 def _require(path: pathlib.Path) -> pathlib.Path:
